@@ -12,6 +12,8 @@ Vapor is a Roblox UI library focused on keeping the original Vapor visual identi
 
 ## Loadstring
 
+Copy this exact line:
+
 ```lua
 local Vapor = loadstring(game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua"))()
 ```
