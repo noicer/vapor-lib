@@ -193,7 +193,7 @@ local function applyResolvedIcon(img, source)
         table.insert(iconQueue, {img, iconName})
     end
 end
-flushIconQueue = function())
+flushIconQueue = function()
     for _, entry in ipairs(iconQueue) do
         local img, source = entry[1], entry[2]
         if img and img.Parent then
