@@ -1,0 +1,17 @@
+Vapor
+Copyright (c) noicer
+
+This project includes or is inspired by third-party work:
+
+1. Rayfield
+   Repository: https://github.com/SiriusSoftwareLtd/Rayfield
+   License: Apache-2.0
+   Note: The Lucide atlas integration approach used in this release was inspired by Rayfield.
+
+2. Lucide
+   Website: https://lucide.dev/
+   Repository: https://github.com/lucide-icons/lucide
+   License: ISC
+   Note: Lucide provides the icon set used by this library.
+
+This NOTICE is provided for attribution clarity. Review upstream licenses before redistributing derived work.
