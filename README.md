@@ -55,7 +55,10 @@ Main:CreateButton({
 
 See [NOTICE](./NOTICE) for attribution details.
 
+## License
+
+This project is licensed under Apache-2.0. See [LICENSE](./LICENSE).
+
 ## Notes
 
 - This repository currently ships the release file as [`vapor.lua`](./vapor.lua)
-- A formal open-source license has not been added yet
