@@ -364,6 +364,13 @@ local function create(className, props)
     return instance
 end
 
+local function captureInput(guiObject)
+    pcall(function()
+        guiObject.Active = true
+    end)
+    return guiObject
+end
+
 local function createIconButton(parent, props)
     local button = create("TextButton", {
         Name = props.Name or "IconButton",
@@ -394,6 +401,7 @@ local function createDropdownShell(page, height)
         ClipsDescendants = true,
         Parent = page,
     })
+    captureInput(shell)
     corner(shell, 12)
     local shellStroke = stroke(shell, T.Border, 1, 1)
     pad(shell, 16, 16, 0, 0)
@@ -410,6 +418,7 @@ local function baseRow(page, h)
     Row.BackgroundColor3       = T.ElemBg
     Row.BackgroundTransparency = 1
     Row.Parent                 = page
+    captureInput(Row)
     corner(Row, 12)
     local rs = stroke(Row, T.Border, 1, 1)
     pad(Row, 16, 16, 0, 0)
@@ -560,6 +569,7 @@ function VaporLens:Notify(data)
     N.BackgroundColor3       = T.NotifBg
     N.BackgroundTransparency = 0.08
     N.Parent                 = parent
+    captureInput(N)
     corner(N, 10)
     local nStr = stroke(N, T.Glow, 0.55, 1)
 
@@ -680,6 +690,7 @@ function VaporLens:CreateWindow(cfg)
     Main.BackgroundTransparency = T.GlassTransp
     Main.ClipsDescendants       = true
     Main.Parent                 = sg
+    captureInput(Main)
     corner(Main, 24)
     stroke(Main, T.Border, T.BorderTransp, 1)
 
@@ -743,6 +754,7 @@ function VaporLens:CreateWindow(cfg)
     InnerClip.ClipsDescendants       = true
     InnerClip.ZIndex                 = 1
     InnerClip.Parent                 = Main
+    captureInput(InnerClip)
     corner(InnerClip, 18)
 
     --  HEADER (82px  identical to original) 
@@ -751,6 +763,7 @@ function VaporLens:CreateWindow(cfg)
     Header.Size               = UDim2.new(1, 0, 0, HDR_H)
     Header.BackgroundTransparency = 1
     Header.Parent             = InnerClip
+    captureInput(Header)
     pad(Header, PAD, PAD, PAD, PAD)
 
     local hGrad = Instance.new("UIGradient")
@@ -825,6 +838,7 @@ function VaporLens:CreateWindow(cfg)
     Nav.Position          = UDim2.new(0, 0, 0, HDR_H)
     Nav.BackgroundTransparency = 1
     Nav.Parent            = InnerClip
+    captureInput(Nav)
     pad(Nav, PAD, PAD, 0, 0)
     hList(Nav, 20, Enum.VerticalAlignment.Center)
 
@@ -840,6 +854,7 @@ function VaporLens:CreateWindow(cfg)
     ContentFrame.BackgroundTransparency = 1
     ContentFrame.ClipsDescendants   = true
     ContentFrame.Parent             = InnerClip
+    captureInput(ContentFrame)
 
     --  TAB STATE 
     local _pages   = {}
@@ -1001,6 +1016,7 @@ function VaporLens:CreateWindow(cfg)
         Page.CanvasSize            = UDim2.new(0, 0, 0, 0)
         Page.Visible               = false
         Page.Parent                = ContentFrame
+        captureInput(Page)
         pad(Page, PAD, PAD, PAD, PAD)
         vList(Page, 12)
 
