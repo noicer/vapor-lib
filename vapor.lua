@@ -84,7 +84,7 @@ local iconReady = false
 local iconQueue = {}   -- { imageLabel, source }
 local ICON_ATLAS_URL = "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/refs/heads/main/icons.lua"
 local DEFAULT_DROPDOWN_ICON = "chevron-down"
-local DEFAULT_COLLAPSE_ICON = "chevron-down"
+local DEFAULT_COLLAPSE_ICON = "arrow-down"
 local atlasLoaderStarted = false
 local flushIconQueue
 local function trim(str)
@@ -224,29 +224,29 @@ end
 -- 
 local T = {
     -- Window
-    Glass          = Color3.fromRGB(26, 1, 41),
-    GlassTransp    = 0.18,
-    Border         = Color3.fromRGB(82, 3, 128),
-    BorderTransp   = 0.38,
+    Glass          = Color3.fromRGB(255, 255, 255),
+    GlassTransp    = 0.96,
+    Border         = Color3.fromRGB(255, 255, 255),
+    BorderTransp   = 0.90,
     -- Accent
-    Glow           = Color3.fromRGB(82, 3, 128),
+    Glow           = Color3.fromRGB(0, 200, 255),
     -- Text
     Primary        = Color3.fromRGB(255, 255, 255),
-    Secondary      = Color3.fromRGB(220, 210, 240),
-    SecTransp      = 0.18,
+    Secondary      = Color3.fromRGB(255, 255, 255),
+    SecTransp      = 0.45,
     -- Elements
-    ElemBg         = Color3.fromRGB(34, 1, 53),
-    ElemTransp     = 0.24,
-    ElemHoverTransp= 0.12,
-    ElemBdrTransp  = 0.46,
+    ElemBg         = Color3.fromRGB(255, 255, 255),
+    ElemTransp     = 0.98,
+    ElemHoverTransp= 0.95,
+    ElemBdrTransp  = 0.90,
     -- Controls
-    ToggleOff      = Color3.fromRGB(17, 0, 28),
-    SliderTrack    = Color3.fromRGB(34, 1, 53),
-    InputBg        = Color3.fromRGB(17, 0, 28),
+    ToggleOff      = Color3.fromRGB(26, 26, 28),
+    SliderTrack    = Color3.fromRGB(28, 28, 36),
+    InputBg        = Color3.fromRGB(14, 14, 20),
     -- Section label
-    SectionTransp  = 0.30,
+    SectionTransp  = 0.55,
     -- Notification
-    NotifBg        = Color3.fromRGB(17, 0, 28),
+    NotifBg        = Color3.fromRGB(8, 8, 14),
 }
 
 -- 
@@ -777,7 +777,7 @@ function VaporLens:CreateWindow(cfg)
 
     local IcoImg = icoLabel(IcoBox, 18, Color3.new(1,1,1))
     IcoImg.Position = UDim2.new(0.5, -9, 0.5, -9)
-    if cfg.Icon then applyIcon(IcoImg, cfg.Icon) end
+    applyIcon(IcoImg, cfg.Icon or "droplets")
 
     -- Collapse button  absolute right
     local ColBtn, ColIcon = createIconButton(Header, {
