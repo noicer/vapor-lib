@@ -13,13 +13,15 @@ Vapor is a Roblox UI library focused on keeping the original Vapor visual identi
 ## Loadstring
 
 ```lua
-local Vapor = loadstring(game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua"))()
+local src = game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua")
+local Vapor = assert(loadstring(src))()
 ```
 
 ## Basic Example
 
 ```lua
-local Vapor = loadstring(game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua"))()
+local src = game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua")
+local Vapor = assert(loadstring(src))()
 
 local Window = Vapor:CreateWindow({
     Title = "Vapor",

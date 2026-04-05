@@ -1,72 +1,72 @@
---[[
-╔══════════════════════════════════════════════════════════════╗
-║              VAPOR LENS  UI LIBRARY  v1.1                    ║
-║                                                              ║
-║  Aesthetic: 1:1 with original VaporLens v1.6 design.        ║
-║  Window is fixed-size. Content area scrolls internally.      ║
-║  Horizontal tab nav. Lucide icon support.                    ║
-║                                                              ║
-║  ── QUICK START ───────────────────────────────────────────  ║
-║                                                              ║
-║  local VL = loadstring(game:HttpGet("RAW_URL"))()            ║
-║                                                              ║
-║  local Win = VL:CreateWindow({                               ║
-║      Title     = "My Script",                                ║
-║      Subtitle  = "v1.0",                                     ║
-║      Icon      = "zap",       -- Lucide icon name (string)   ║
-║      ToggleKey = Enum.KeyCode.RightControl,                  ║
-║      Width     = 480,         -- optional, default 480       ║
-║      Height    = 380,         -- optional, default 380       ║
-║  })                                                          ║
-║                                                              ║
-║  local Tab = Win:CreateTab("Dashboard")                      ║
-║  -- or: Win:CreateTab("Combat", "sword")  (with icon)        ║
-║                                                              ║
-║  Tab:CreateSection("Aimbot")                                 ║
-║                                                              ║
-║  local tog = Tab:CreateToggle({                              ║
-║      Name = "Enable Aimbot", CurrentValue = false,           ║
-║      Flag = "AimbotOn",                                      ║
-║      Callback = function(v) print(v) end,                    ║
-║  })                                                          ║
-║  tog:Set(true)                                               ║
-║                                                              ║
-║  local sl = Tab:CreateSlider({                               ║
-║      Name = "FOV", Range = {1,360}, Increment = 1,           ║
-║      Suffix = "°", CurrentValue = 90,                        ║
-║      Callback = function(v) print(v) end,                    ║
-║  })                                                          ║
-║                                                              ║
-║  Tab:CreateButton({ Name = "Teleport",                       ║
-║      Callback = function() end })                            ║
-║                                                              ║
-║  Tab:CreateDropdown({                                        ║
-║      Name = "Target", Options = {"Head","Torso"},            ║
-║      CurrentOption = {"Head"}, MultipleOptions = false,      ║
-║      Callback = function(opt) print(opt) end,                ║
-║  })                                                          ║
-║                                                              ║
-║  Tab:CreateInput({                                           ║
-║      Name = "Player", PlaceholderText = "Name...",           ║
-║      Callback = function(t) print(t) end,                    ║
-║  })                                                          ║
-║                                                              ║
-║  Tab:CreateKeybind({                                         ║
-║      Name = "Toggle Key", CurrentKeybind = Enum.KeyCode.F,  ║
-║      Callback = function(k) print(k) end,                    ║
-║  })                                                          ║
-║                                                              ║
-║  Tab:CreateLabel("Heads-up text", "info")                    ║
-║  Tab:CreateParagraph({ Title = "Note", Content = "..." })    ║
-║                                                              ║
-║  VL:Notify({ Title="Hi", Content="Ready!", Icon="check" })   ║
-║  VL:Destroy()                                                ║
-╚══════════════════════════════════════════════════════════════╝
+﻿--[[
+
+              VAPOR LENS  UI LIBRARY  v1.1                    
+                                                              
+  Aesthetic: 1:1 with original VaporLens v1.6 design.        
+  Window is fixed-size. Content area scrolls internally.      
+  Horizontal tab nav. Lucide icon support.                    
+                                                              
+   QUICK START   
+                                                              
+  local VL = loadstring(game:HttpGet("RAW_URL"))()            
+                                                              
+  local Win = VL:CreateWindow({                               
+      Title     = "My Script",                                
+      Subtitle  = "v1.0",                                     
+      Icon      = "zap",       -- Lucide icon name (string)   
+      ToggleKey = Enum.KeyCode.RightControl,                  
+      Width     = 480,         -- optional, default 480       
+      Height    = 380,         -- optional, default 380       
+  })                                                          
+                                                              
+  local Tab = Win:CreateTab("Dashboard")                      
+  -- or: Win:CreateTab("Combat", "sword")  (with icon)        
+                                                              
+  Tab:CreateSection("Aimbot")                                 
+                                                              
+  local tog = Tab:CreateToggle({                              
+      Name = "Enable Aimbot", CurrentValue = false,           
+      Flag = "AimbotOn",                                      
+      Callback = function(v) print(v) end,                    
+  })                                                          
+  tog:Set(true)                                               
+                                                              
+  local sl = Tab:CreateSlider({                               
+      Name = "FOV", Range = {1,360}, Increment = 1,           
+      Suffix = "", CurrentValue = 90,                        
+      Callback = function(v) print(v) end,                    
+  })                                                          
+                                                              
+  Tab:CreateButton({ Name = "Teleport",                       
+      Callback = function() end })                            
+                                                              
+  Tab:CreateDropdown({                                        
+      Name = "Target", Options = {"Head","Torso"},            
+      CurrentOption = {"Head"}, MultipleOptions = false,      
+      Callback = function(opt) print(opt) end,                
+  })                                                          
+                                                              
+  Tab:CreateInput({                                           
+      Name = "Player", PlaceholderText = "Name...",           
+      Callback = function(t) print(t) end,                    
+  })                                                          
+                                                              
+  Tab:CreateKeybind({                                         
+      Name = "Toggle Key", CurrentKeybind = Enum.KeyCode.F,  
+      Callback = function(k) print(k) end,                    
+  })                                                          
+                                                              
+  Tab:CreateLabel("Heads-up text", "info")                    
+  Tab:CreateParagraph({ Title = "Note", Content = "..." })    
+                                                              
+  VL:Notify({ Title="Hi", Content="Ready!", Icon="check" })   
+  VL:Destroy()                                                
+
 ]]
 
--- ═══════════════════════════════════════════════════════════
+-- 
 --  SERVICES
--- ═══════════════════════════════════════════════════════════
+-- 
 local UIS  = game:GetService("UserInputService")
 local TS   = game:GetService("TweenService")
 local RS   = game:GetService("RunService")
@@ -75,10 +75,10 @@ local Plrs = game:GetService("Players")
 local lp   = Plrs.LocalPlayer
 local pGui = lp:WaitForChild("PlayerGui")
 
--- ═══════════════════════════════════════════════════════════
---  LUCIDE ICONS  (same atlas as Rayfield — Latte Softworks)
+-- 
+--  LUCIDE ICONS  (same atlas as Rayfield  Latte Softworks)
 --  Load is async. applyIcon() queues requests made before load.
--- ═══════════════════════════════════════════════════════════
+-- 
 local Icons = (function()
 -- This file was automatically @generated and not intended for manual editing
 --!nocheck
@@ -208,9 +208,9 @@ local function applyIcon(img, source)
     applyResolvedIcon(img, source)
 end
 
--- ═══════════════════════════════════════════════════════════
---  THEME  — maps 1:1 to the original VaporLens v1.6 values
--- ═══════════════════════════════════════════════════════════
+-- 
+--  THEME   maps 1:1 to the original VaporLens v1.6 values
+-- 
 local T = {
     -- Window
     Glass          = Color3.fromRGB(26, 1, 41),
@@ -238,15 +238,15 @@ local T = {
     NotifBg        = Color3.fromRGB(17, 0, 28),
 }
 
--- ═══════════════════════════════════════════════════════════
+-- 
 --  FONTS
--- ═══════════════════════════════════════════════════════════
+-- 
 local FB = Enum.Font.GothamBold
 local FM = Enum.Font.GothamMedium   -- paragraph body only
 
--- ═══════════════════════════════════════════════════════════
---  SIZING — same proportions as original v1.6
--- ═══════════════════════════════════════════════════════════
+-- 
+--  SIZING  same proportions as original v1.6
+-- 
 local HDR_H    = 82     -- header (matches original)
 local NAV_H    = 32     -- nav bar
 local PAD      = 25     -- horizontal padding
@@ -257,9 +257,9 @@ local EDGE_SAFE = 6
 -- Notification geometry
 local NF = { W = 290, H = 48, Gap = 9, Right = 20, Bot = 20 }
 
--- ═══════════════════════════════════════════════════════════
+-- 
 --  HELPERS
--- ═══════════════════════════════════════════════════════════
+-- 
 local function qt(obj, goal, dur, style, dir)
     local tw = TS:Create(obj,
         TweenInfo.new(dur or 0.28,
@@ -389,9 +389,9 @@ local function createDropdownShell(page, height)
     return shell, shellStroke
 end
 
--- ═══════════════════════════════════════════════════════════
+-- 
 --  SHARED ROW BUILDER
--- ═══════════════════════════════════════════════════════════
+-- 
 local function baseRow(page, h)
     h = h or ELEM_H
     local Row = Instance.new("Frame")
@@ -430,9 +430,9 @@ local function rowLabel(row, text, wScale)
     return l
 end
 
--- ═══════════════════════════════════════════════════════════
+-- 
 --  LIBRARY
--- ═══════════════════════════════════════════════════════════
+-- 
 local VaporLens = { Flags = {}, Version = "1.1" }
 
 local _gui        = nil
@@ -477,33 +477,33 @@ local function runCallback(callback, ...)
     end)
 end
 
--- ─────────────────────────────────────────────────────────
+-- 
 --  VaporLens:SetTheme(custom)
 --
 --  Merges any keys from `custom` into the theme table T.
 --  Must be called BEFORE :CreateWindow() so every element
 --  picks up the new values at build time.
 --
---  Available keys (all optional — only override what you want):
+--  Available keys (all optional  only override what you want):
 --
 --    Glass          Color3   window background tint
---    GlassTransp    number   window background transparency  (0–1)
+--    GlassTransp    number   window background transparency  (01)
 --    Border         Color3   window + element border colour
---    BorderTransp   number   window border transparency      (0–1)
+--    BorderTransp   number   window border transparency      (01)
 --    Glow           Color3   accent / active colour
 --    Primary        Color3   primary text colour
 --    Secondary      Color3   secondary text colour
---    SecTransp      number   secondary text transparency     (0–1)
+--    SecTransp      number   secondary text transparency     (01)
 --    ElemBg         Color3   element row background tint
---    ElemTransp     number   element row transparency        (0–1)
---    ElemHoverTransp number  element hover transparency      (0–1)
---    ElemBdrTransp  number   element border transparency     (0–1)
+--    ElemTransp     number   element row transparency        (01)
+--    ElemHoverTransp number  element hover transparency      (01)
+--    ElemBdrTransp  number   element border transparency     (01)
 --    ToggleOff      Color3   toggle track colour when off
 --    SliderTrack    Color3   slider unfilled track colour
 --    InputBg        Color3   input field background
---    SectionTransp  number   section label transparency      (0–1)
+--    SectionTransp  number   section label transparency      (01)
 --    NotifBg        Color3   notification background
--- ─────────────────────────────────────────────────────────
+-- 
 function VaporLens:SetTheme(custom)
     assert(type(custom) == "table", "VaporLens:SetTheme() expects a table")
     for k, v in pairs(custom) do
@@ -522,9 +522,9 @@ function VaporLens:SetIconAtlas(atlas)
     flushIconQueue()
 end
 
--- ─────────────────────────────────────────────────────────
+-- 
 --  NOTIFICATIONS
--- ─────────────────────────────────────────────────────────
+-- 
 local function _notifPos(i)
     return UDim2.new(1, -NF.Right, 1, -(NF.Bot + (i-1)*(NF.H+NF.Gap)))
 end
@@ -614,9 +614,9 @@ function VaporLens:Notify(data)
     end)
 end
 
--- ─────────────────────────────────────────────────────────
+-- 
 --  DESTROY
--- ─────────────────────────────────────────────────────────
+-- 
 function VaporLens:Destroy()
     _destroyed = true
     disconnectTrackedConnections()
@@ -629,9 +629,9 @@ function VaporLens:Destroy()
     self.Flags = {}
 end
 
--- ═══════════════════════════════════════════════════════════
+-- 
 --  CREATE WINDOW
--- ═══════════════════════════════════════════════════════════
+-- 
 function VaporLens:CreateWindow(cfg)
     cfg = cfg or {}
     if _destroyed then _destroyed = false end
@@ -644,7 +644,7 @@ function VaporLens:CreateWindow(cfg)
     local WIN_H     = cfg.Height    or 380
     local toggleKey = cfg.ToggleKey or Enum.KeyCode.RightControl
 
-    -- ── ScreenGui ─────────────────────────────────────────
+    --  ScreenGui 
     local sg = Instance.new("ScreenGui")
     sg.Name           = "VaporLensUI"
     sg.ResetOnSpawn   = false
@@ -660,7 +660,7 @@ function VaporLens:CreateWindow(cfg)
         end
     end)
 
-    -- ── Main container — FIXED SIZE ───────────────────────
+    --  Main container  FIXED SIZE 
     local Main = Instance.new("Frame")
     Main.Name                   = "Main"
     Main.Size                   = UDim2.new(0, WIN_W, 0, WIN_H)
@@ -734,7 +734,7 @@ function VaporLens:CreateWindow(cfg)
     InnerClip.Parent                 = Main
     corner(InnerClip, 18)
 
-    -- ── HEADER (82px — identical to original) ─────────────
+    --  HEADER (82px  identical to original) 
     local Header = Instance.new("Frame")
     Header.Name               = "Header"
     Header.Size               = UDim2.new(1, 0, 0, HDR_H)
@@ -750,7 +750,7 @@ function VaporLens:CreateWindow(cfg)
     })
     hGrad.Parent = Header
 
-    -- Icon box — absolute left (32×32, matches original)
+    -- Icon box  absolute left (3232, matches original)
     local IcoBox = Instance.new("Frame")
     IcoBox.Size               = UDim2.new(0, 32, 0, 32)
     IcoBox.Position           = UDim2.new(0, 0, 0.5, -16)
@@ -768,7 +768,7 @@ function VaporLens:CreateWindow(cfg)
     IcoImg.Position = UDim2.new(0.5, -9, 0.5, -9)
     if cfg.Icon then applyIcon(IcoImg, cfg.Icon) end
 
-    -- Collapse button — absolute right
+    -- Collapse button  absolute right
     local ColBtn, ColIcon = createIconButton(Header, {
         Name = "CollapseButton",
         Size = UDim2.new(0, 32, 0, 32),
@@ -778,7 +778,7 @@ function VaporLens:CreateWindow(cfg)
         Color = T.Glow,
     })
 
-    -- Title / subtitle — fills between icon and collapse btn
+    -- Title / subtitle  fills between icon and collapse btn
     local TxtBlk = Instance.new("Frame")
     TxtBlk.Size               = UDim2.new(1, -(32+15+32+10), 1, 0)
     TxtBlk.Position           = UDim2.new(0, 32+15, 0, 0)
@@ -808,7 +808,7 @@ function VaporLens:CreateWindow(cfg)
     SubLbl.TextXAlignment     = Enum.TextXAlignment.Left
     SubLbl.Parent             = TxtBlk
 
-    -- ── NAV BAR (32px, horizontal tabs, matches original) ──
+    --  NAV BAR (32px, horizontal tabs, matches original) 
     local Nav = Instance.new("Frame")
     Nav.Size              = UDim2.new(1, 0, 0, NAV_H)
     Nav.Position          = UDim2.new(0, 0, 0, HDR_H)
@@ -817,7 +817,7 @@ function VaporLens:CreateWindow(cfg)
     pad(Nav, PAD, PAD, 0, 0)
     hList(Nav, 20, Enum.VerticalAlignment.Center)
 
-    -- ── SCROLLABLE CONTENT ────────────────────────────────
+    --  SCROLLABLE CONTENT 
     --  Fixed height = WIN_H - header - nav.
     --  Elements scroll inside; scrollbar appears only on overflow.
     local CONTENT_Y = HDR_H + NAV_H
@@ -830,7 +830,7 @@ function VaporLens:CreateWindow(cfg)
     ContentFrame.ClipsDescendants   = true
     ContentFrame.Parent             = InnerClip
 
-    -- ── TAB STATE ─────────────────────────────────────────
+    --  TAB STATE 
     local _pages   = {}
     local _navBtns = {}
     local _activeId = nil
@@ -851,7 +851,7 @@ function VaporLens:CreateWindow(cfg)
         end
     end
 
-    -- ── DRAG ──────────────────────────────────────────────
+    --  DRAG 
     local drag = {on = false, inp = nil, start = nil, startPos = nil}
 
     Header.InputBegan:Connect(function(inp)
@@ -882,7 +882,7 @@ function VaporLens:CreateWindow(cfg)
         )
     end))
 
-    -- ── COLLAPSE ──────────────────────────────────────────
+    --  COLLAPSE 
     local _collapsed = false
     ColBtn.MouseButton1Click:Connect(function()
         _collapsed = not _collapsed
@@ -897,7 +897,7 @@ function VaporLens:CreateWindow(cfg)
         end
     end)
 
-    -- ── VISIBILITY KEYBIND ────────────────────────────────
+    --  VISIBILITY KEYBIND 
     local _visible = true
     trackConnection(UIS.InputBegan:Connect(function(inp, gpe)
         if gpe or _destroyed then return end
@@ -915,7 +915,7 @@ function VaporLens:CreateWindow(cfg)
         end
     end))
 
-    -- ── ENTRANCE ANIMATION ────────────────────────────────
+    --  ENTRANCE ANIMATION 
     Main.BackgroundTransparency = 1
     GlassBase.BackgroundTransparency = 1
     GlassSheen.BackgroundTransparency = 1
@@ -933,15 +933,15 @@ function VaporLens:CreateWindow(cfg)
         qt(InnerGlassStroke, {Transparency = 0.78}, 0.52, Enum.EasingStyle.Exponential)
     end)
 
-    -- ═══════════════════════════════════════════════════════
+    -- 
     --  WINDOW OBJECT
-    -- ═══════════════════════════════════════════════════════
+    -- 
     local Window = {}
 
-    -- ──────────────────────────────────────────────────────
+    -- 
     --  Window:CreateTab(title, iconName?)
     --  or  Window:CreateTab({ Title = "...", Icon = "..." })
-    -- ──────────────────────────────────────────────────────
+    -- 
     function Window:CreateTab(titleOrCfg, iconName)
         local tabName, tabIcon
         if type(titleOrCfg) == "table" then
@@ -977,7 +977,7 @@ function VaporLens:CreateWindow(cfg)
 
         _navBtns[tabId] = NavBtn
 
-        -- Scrollable page — fills the content frame, scrolls on Y
+        -- Scrollable page  fills the content frame, scrolls on Y
         local Page = Instance.new("ScrollingFrame")
         Page.Name                  = "Page_" .. tabName
         Page.Size                  = UDim2.new(1, 0, 1, 0)
@@ -1000,12 +1000,12 @@ function VaporLens:CreateWindow(cfg)
             activateTab(tabId)
         end)
 
-        -- ══════════════════════════════════════════════════
+        -- 
         --  TAB ELEMENT FACTORIES
-        -- ══════════════════════════════════════════════════
+        -- 
         local Tab = {}
 
-        -- ── CreateSection ───────────────────────────────────
+        --  CreateSection 
         function Tab:CreateSection(name)
             local Sec = Instance.new("Frame")
             Sec.Size                   = UDim2.new(1, 0, 0, 28)
@@ -1037,8 +1037,8 @@ function VaporLens:CreateWindow(cfg)
             sl.Parent             = Sec
         end
 
-        -- ── CreateToggle ─────────────────────────────────────
-        --  36×18 track, 14px ball — identical to v1.6 original
+        --  CreateToggle 
+        --  3618 track, 14px ball  identical to v1.6 original
         function Tab:CreateToggle(s)
             s = s or {}
             local Row, _ = baseRow(Page)
@@ -1087,7 +1087,7 @@ function VaporLens:CreateWindow(cfg)
             return s
         end
 
-        -- ── CreateSlider ──────────────────────────────────────
+        --  CreateSlider 
         function Tab:CreateSlider(s)
             s = s or {}
             local minV = (s.Range and s.Range[1]) or 0
@@ -1194,7 +1194,7 @@ function VaporLens:CreateWindow(cfg)
             return s
         end
 
-        -- ── CreateButton ──────────────────────────────────────
+        --  CreateButton 
         function Tab:CreateButton(s)
             s = s or {}
             local Row, _ = baseRow(Page)
@@ -1228,7 +1228,7 @@ function VaporLens:CreateWindow(cfg)
             return s
         end
 
-        -- ── CreateInput ───────────────────────────────────────
+        --  CreateInput 
         function Tab:CreateInput(s)
             s = s or {}
             local Row, _ = baseRow(Page)
@@ -1277,7 +1277,7 @@ function VaporLens:CreateWindow(cfg)
             return s
         end
 
-        -- ── CreateKeybind ─────────────────────────────────────
+        --  CreateKeybind 
         function Tab:CreateKeybind(s)
             s = s or {}
             local Row, _ = baseRow(Page)
@@ -1354,7 +1354,7 @@ function VaporLens:CreateWindow(cfg)
             return s
         end
 
-        -- ── CreateDropdown ────────────────────────────────────
+        --  CreateDropdown 
         function Tab:CreateDropdown(s)
             s = s or {}
             local isMulti = s.MultipleOptions == true
@@ -1478,7 +1478,7 @@ function VaporLens:CreateWindow(cfg)
                 local ck = Instance.new("TextLabel")
                 ck.Size               = UDim2.new(0, 20, 1, 0)
                 ck.BackgroundTransparency = 1
-                ck.Text               = sel[opt] and "✓" or ""
+                ck.Text               = sel[opt] and "" or ""
                 ck.TextColor3         = T.Glow
                 ck.Font               = FB
                 ck.TextSize           = 11
@@ -1499,7 +1499,7 @@ function VaporLens:CreateWindow(cfg)
                 local function sync()
                     qt(IBtn,   {BackgroundTransparency = sel[opt] and 0.84 or 0.99}, 0.18)
                     qt(IBtn,   {BackgroundColor3 = sel[opt] and T.Glow or Color3.new(1,1,1)}, 0.18)
-                    ck.Text = sel[opt] and "✓" or ""
+                    ck.Text = sel[opt] and "*" or ""
                     qt(optLbl, {
                         TextColor3       = sel[opt] and T.Glow or T.Primary,
                         TextTransparency = sel[opt] and 0 or T.SecTransp,
@@ -1569,7 +1569,7 @@ function VaporLens:CreateWindow(cfg)
             return s
         end
 
-        -- ── CreateLabel ───────────────────────────────────────
+        --  CreateLabel 
         function Tab:CreateLabel(text, iconName, color)
             local Row = Instance.new("Frame")
             Row.Size                   = UDim2.new(1, 0, 0, 34)
@@ -1610,7 +1610,7 @@ function VaporLens:CreateWindow(cfg)
             return LV
         end
 
-        -- ── CreateParagraph ───────────────────────────────────
+        --  CreateParagraph 
         function Tab:CreateParagraph(s)
             s = s or {}
             local Row = Instance.new("Frame")
@@ -1657,7 +1657,7 @@ function VaporLens:CreateWindow(cfg)
         return Tab
     end -- CreateTab
 
-    -- ── Window utilities ──────────────────────────────────────
+    --  Window utilities 
     function Window:SelectTab(name)
         for id in pairs(_pages) do
             if id:lower():find(name:lower(), 1, true) then
@@ -1688,5 +1688,6 @@ function VaporLens:CreateWindow(cfg)
 end -- CreateWindow
 
 return VaporLens
+
 
 
