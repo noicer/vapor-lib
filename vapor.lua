@@ -1,4 +1,4 @@
-﻿--[[
+--[[
 
               VAPOR LENS  UI LIBRARY  v1.1                    
                                                               
