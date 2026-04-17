@@ -48,6 +48,7 @@ Main:CreateButton({
 
 ## Attribution
 
+- Vapor backend/public release work by noicer
 - Lucide integration by Rayfield
 - Icons provided by Lucide
 
