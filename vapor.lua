@@ -431,7 +431,7 @@ local function createDropdownShell(page, height)
 	captureInput(shell)
 	corner(shell, 12)
 	local shellStroke = stroke(shell, T.Border, 1, 1)
-	pad(shell, 16, 16, 0, 0)
+	pad(shell, 16, 16, 0, 8)
 	return shell, shellStroke
 end
 
@@ -1792,9 +1792,9 @@ function VaporLens:CreateWindow(cfg)
 			local isPlayerMode = s.PlayerMode == true
 			local showSelf = s.ShowSelf ~= false -- default true
 
-			local avatarScale = type(s.AvatarScale) == "number" and math.clamp(s.AvatarScale, 0.5, 2) or 1
-			local displayNameScale = type(s.DisplayNameScale) == "number" and math.clamp(s.DisplayNameScale, 0.5, 2) or 1
-			local usernameScale = type(s.UsernameScale) == "number" and math.clamp(s.UsernameScale, 0.5, 2) or 1
+			local avatarScale = type(s.AvatarScale) == "number" and math.clamp(s.AvatarScale, 0.5, 2) or 1.25
+			local displayNameScale = type(s.DisplayNameScale) == "number" and math.clamp(s.DisplayNameScale, 0.5, 2) or 1.15
+			local usernameScale = type(s.UsernameScale) == "number" and math.clamp(s.UsernameScale, 0.5, 2) or 1.15
 
 			local MAX_DROPDOWN_VISIBLE = 5
 			local BASE_H = ELEM_H
@@ -2243,7 +2243,7 @@ function VaporLens:CreateWindow(cfg)
 			Interact.MouseButton1Click:Connect(function()
 				isOpen = not isOpen
 				if isOpen then
-					local expandH = BASE_H + math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H
+					local expandH = BASE_H + (math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H) + 8
 					qt(DD, { Size = UDim2.new(1, 0, 0, expandH) }, 0.32, Enum.EasingStyle.Quart)
 					syncDropdownChevron(true)
 
