@@ -2019,16 +2019,6 @@ function VaporLens:CreateWindow(cfg)
 						IBtn.Parent = itemContainer
 						corner(IBtn, 7)
 
-						-- LocalPlayer gets a 1px Glow stroke to distinguish themselves
-						if isLocal then
-							local ls = cloak(Instance.new("UIStroke"))
-							ls.Color = T.Glow
-							ls.Transparency = 0.5
-							ls.Thickness = 1
-							ls.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-							ls.Parent = IBtn
-						end
-
 						-- Avatar
 						local avatarImg = cloak(Instance.new("ImageLabel"))
 						local iAvSize = math.floor(24 * avatarScale)
