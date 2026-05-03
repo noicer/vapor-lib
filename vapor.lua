@@ -8,6 +8,14 @@ local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 
 --
+--  ANTI-DUPLICATE REGISTRY
+--  Executor-wide shared table detects re-execution and destroys the previous instance.
+--  Uses getgenv() (standard across 90%+ executors) with _G fallback for Studio.
+--
+local VAPOR_REGISTRY_KEY = "__VaporLens_Instance__"
+local _sharedEnv = (type(getgenv) == "function" and getgenv()) or _G
+
+--
 --  LUCIDE ICONS  (same atlas as Rayfield  Latte Softworks)
 --  Load is async. applyIcon() queues requests made before load.
 --
@@ -134,7 +142,7 @@ local function applyResolvedIcon(img, source)
 					iconLoadFailed = true
 					warn("VaporLens | Lucide icons failed: " .. tostring(res))
 				end
-				flushIconQueue()
+				task.defer(function() flushIconQueue() end) -- deferred: guarantees assignment completes before invocation
 			end)
 		end
 		table.insert(iconQueue, { img, iconName })
@@ -325,12 +333,22 @@ end
 
 local function safeMount(sg)
 	local ok = pcall(function()
-		if gethui then
+		-- Executor fallback chain: gethui > get_hidden_gui > syn.protect_gui > protect_gui > CoreGui
+		if type(gethui) == "function" then
 			sg.Parent = gethui()
 			return
 		end
-		if syn and syn.protect_gui then
+		if type(get_hidden_gui) == "function" then
+			sg.Parent = get_hidden_gui()
+			return
+		end
+		if syn and type(syn.protect_gui) == "function" then
 			syn.protect_gui(sg)
+			sg.Parent = CoreGui
+			return
+		end
+		if type(protect_gui) == "function" then
+			protect_gui(sg)
 			sg.Parent = CoreGui
 			return
 		end
@@ -453,15 +471,27 @@ local function baseRow(page, h)
 	return Row, rs
 end
 
-local function rowLabel(row, text, wScale)
+-- rowLabel(row, text, rightPx)
+-- Creates a left-aligned descriptive TextLabel that respects the right-aligned interactive element.
+-- @param rightPx  pixel width of the right element + 8px gap buffer. Label width = 1, -(rightPx).
+--                 Falls back to scale 0.55 if nil (legacy compat). O(1) property assignment.
+local function rowLabel(row, text, rightPx)
 	local l = cloak(Instance.new("TextLabel"))
-	l.Size = UDim2.new(wScale or 0.55, 0, 1, 0)
+	if type(rightPx) == "number" and rightPx > 0 then
+		-- Offset-based: prevents overlap with right element regardless of window width or DPI
+		l.Size = UDim2.new(1, -rightPx, 1, 0)
+	else
+		-- Legacy scale fallback (should not be used for new elements)
+		l.Size = UDim2.new(0.55, 0, 1, 0)
+	end
 	l.BackgroundTransparency = 1
 	l.Text = text or ""
 	l.TextColor3 = T.Primary
 	l.Font = FB
 	l.TextSize = 14
 	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.TextWrapped = true      -- word-wrap on overflow
+	l.TextTruncate = Enum.TextTruncate.AtEnd  -- ellipsis if still overflows after wrap
 	l.Parent = row
 	return l
 end
@@ -469,7 +499,7 @@ end
 --
 --  LIBRARY
 --
-local VaporLens = { Flags = {}, Version = "1.1" }
+local VaporLens = { Flags = {}, Version = "1.2" }
 
 local _gui = nil
 local _notifStack = {}
@@ -769,6 +799,8 @@ function InputManager:Init()
 			end
 		end
 
+		if key == Enum.KeyCode.Unknown then return end 
+
 		for id, binding in pairs(self.Keybinds) do
 			if binding.Alive and not binding.Alive() then
 				self.Keybinds[id] = nil
@@ -824,6 +856,10 @@ function VaporLens:Destroy()
 	end
 	_gui = nil
 	self.Flags = {}
+	-- Clear global registry sentinel to prevent dangling references
+	if _sharedEnv[VAPOR_REGISTRY_KEY] == self then
+		_sharedEnv[VAPOR_REGISTRY_KEY] = nil
+	end
 end
 
 --
@@ -831,6 +867,15 @@ end
 --
 function VaporLens:CreateWindow(cfg)
 	cfg = cfg or {}
+
+	-- Anti-duplicate: destroy any previous VaporLens instance from a prior script execution.
+	-- Uses shared environment registry to locate the old instance regardless of cloak() randomization.
+	local prev = _sharedEnv[VAPOR_REGISTRY_KEY]
+	if prev and prev ~= self and type(prev.Destroy) == "function" then
+		pcall(prev.Destroy, prev)
+	end
+	_sharedEnv[VAPOR_REGISTRY_KEY] = self
+
 	if _gui or #_notifStack > 0 then
 		self:Destroy()
 	end
@@ -1377,6 +1422,7 @@ function VaporLens:CreateWindow(cfg)
 			sl.Font = FB
 			sl.TextSize = 10
 			sl.TextXAlignment = Enum.TextXAlignment.Center
+			sl.TextTruncate = Enum.TextTruncate.AtEnd  -- prevent overflow past side lines
 			sl.Parent = Sec
 		end
 
@@ -1385,7 +1431,8 @@ function VaporLens:CreateWindow(cfg)
 		function Tab:CreateToggle(s)
 			s = s or {}
 			local Row, _ = baseRow(Page)
-			rowLabel(Row, s.Name or "")
+			-- Toggle track: 36px wide, positioned at UDim2(1, -36, ...). Gap = 8px. Total = 44px.
+			rowLabel(Row, s.Name or "", 44)
 
 			local isOn = s.CurrentValue == true
 
@@ -1455,6 +1502,8 @@ function VaporLens:CreateWindow(cfg)
 
 			local Row, _ = baseRow(Page, ELEM_TALL)
 
+			-- Slider name label: shares top row with value label (right-aligned at 0.4 scale).
+			-- Use 0.6 scale here since both labels are in the top half of the tall row. O(1).
 			local nameLbl = cloak(Instance.new("TextLabel"))
 			nameLbl.Size = UDim2.new(0.6, 0, 0, 22)
 			nameLbl.Position = UDim2.new(0, 0, 0, 12)
@@ -1464,6 +1513,8 @@ function VaporLens:CreateWindow(cfg)
 			nameLbl.Font = FB
 			nameLbl.TextSize = 14
 			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+			nameLbl.TextWrapped = true
+			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 			nameLbl.Parent = Row
 
 			-- Value label right-aligned, glow colour (matches "82%" in original)
@@ -1566,9 +1617,11 @@ function VaporLens:CreateWindow(cfg)
 		function Tab:CreateButton(s)
 			s = s or {}
 			local Row, _ = baseRow(Page)
-			rowLabel(Row, s.Name or "", 0.60)
-
+			-- Button: max 88px wide (icon variant) + 8px gap = 96px right offset.
 			local btnW = s.Icon and 88 or 72
+			rowLabel(Row, s.Name or "", btnW + 8)
+
+			-- btnW already calculated above for rowLabel offset
 			local RunBtn = cloak(Instance.new("TextButton"))
 			RunBtn.Size = UDim2.new(0, btnW, 0, 26)
 			RunBtn.Position = UDim2.new(1, -btnW, 0.5, -13)
@@ -1626,7 +1679,8 @@ function VaporLens:CreateWindow(cfg)
 		function Tab:CreateInput(s)
 			s = s or {}
 			local Row, _ = baseRow(Page)
-			rowLabel(Row, s.Name or "", 0.44)
+			-- Input frame: 152px wide + 8px gap = 160px right offset.
+			rowLabel(Row, s.Name or "", 160)
 
 			local IFrm = cloak(Instance.new("Frame"))
 			IFrm.Size = UDim2.new(0, 152, 0, 26)
@@ -1694,7 +1748,8 @@ function VaporLens:CreateWindow(cfg)
 		function Tab:CreateKeybind(s)
 			s = s or {}
 			local Row, _ = baseRow(Page)
-			rowLabel(Row, s.Name or "", 0.52)
+			-- Keybind button: 96px wide + 8px gap = 104px right offset.
+			rowLabel(Row, s.Name or "", 104)
 
 			local cur = s.CurrentKeybind or Enum.KeyCode.Unknown
 			local listening = false
@@ -1847,14 +1902,18 @@ function VaporLens:CreateWindow(cfg)
 				return isOpen
 			end)
 
+			-- Dropdown name label: right container uses 0.5 scale - 34px, plus 30px chevron zone.
+			-- Constrain to 0.5 scale to prevent overlap with RightContainer. O(1).
 			local nameLbl = cloak(Instance.new("TextLabel"))
-			nameLbl.Size = UDim2.new(0.5, 0, 0, BASE_H)
+			nameLbl.Size = UDim2.new(0.5, -8, 0, BASE_H)
 			nameLbl.BackgroundTransparency = 1
 			nameLbl.Text = s.Name or ""
 			nameLbl.TextColor3 = T.Primary
 			nameLbl.Font = FB
 			nameLbl.TextSize = 14
 			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+			nameLbl.TextWrapped = true
+			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 			nameLbl.Parent = HeaderRow
 
 			local RightContainer = cloak(Instance.new("Frame"))
@@ -2343,6 +2402,7 @@ function VaporLens:CreateWindow(cfg)
 
 			local Row, _ = baseRow(Page, ELEM_TALL)
 
+			-- ProgressBar name label: same layout as Slider (0.6 scale, top row). O(1).
 			local nameLbl = cloak(Instance.new("TextLabel"))
 			nameLbl.Size = UDim2.new(0.6, 0, 0, 22)
 			nameLbl.Position = UDim2.new(0, 0, 0, 12)
@@ -2352,6 +2412,8 @@ function VaporLens:CreateWindow(cfg)
 			nameLbl.Font = FB
 			nameLbl.TextSize = 14
 			nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+			nameLbl.TextWrapped = true
+			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 			nameLbl.Parent = Row
 
 			local valLbl = cloak(Instance.new("TextLabel"))
@@ -2424,6 +2486,8 @@ function VaporLens:CreateWindow(cfg)
 			lbl.Font = FB
 			lbl.TextSize = 12
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.TextWrapped = true
+			lbl.TextTruncate = Enum.TextTruncate.AtEnd
 			lbl.Parent = Row
 
 			local LV = {}
@@ -2497,7 +2561,339 @@ function VaporLens:CreateWindow(cfg)
 	end
 
 	function Window:SetToggleKey(key)
+		if key == nil or key == Enum.KeyCode.Unknown then
+			toggleKey = nil -- explicitly disable toggle
+			return
+		end
 		toggleKey = key
+	end
+
+	--  Window:CreateToggleKeybind(tabObj, cfg?)
+	--  Creates a Keybind element on the given tab wired to update the global UI visibility toggle key.
+	--  Accepts all standard CreateKeybind config. CurrentKeybind defaults to the active toggleKey.
+	--  O(1) key update via shared toggleKey upvalue; no extra InputManager registrations.
+	function Window:CreateToggleKeybind(tabObj, cfg)
+		cfg = cfg or {}
+		cfg.Name = cfg.Name or "Toggle UI Key"
+		cfg.CurrentKeybind = cfg.CurrentKeybind or toggleKey
+		cfg.CallOnChange = true
+		local originalCallback = cfg.Callback
+		cfg.Callback = function(newKey)
+			toggleKey = newKey -- shared upvalue with ToggleHandler.GetKey
+			if originalCallback then
+				runCallback(originalCallback, newKey)
+			end
+		end
+		return tabObj:CreateKeybind(cfg)
+	end
+
+	--  Window:CreateFloatingButton(cfg?)
+	--
+	--  AUDIT (v1.3):
+	--  1. FIXED: Drag-triggers-click bug. Root cause: InputManager's global UIS.InputEnded
+	--     clears fabDragState.Active BEFORE FabBtn.InputEnded fires on some executors/platforms,
+	--     causing the `Active && !Dragged` tap check to fail unpredictably.
+	--     Fix: Track the specific InputObject instance (_activeInput) to pair began/ended events.
+	--     The local _wasDragged flag is independent of InputManager state.
+	--  2. FIXED: Drag bounds used fixed BTN_SZ for width clamping; now uses Fab.AbsoluteSize.X.
+	--  3. ADDED: cfg.DragEnabled, cfg.ClickCallback, cfg.DragThreshold, cfg.SnapToEdges,
+	--     cfg.PulseOnClick, cfg.ZIndex config params.
+	--  4. ADDED: :SetClickCallback, :SetDragEnabled, :SetDragThreshold, :SetSnapToEdges methods.
+	--
+	--  cfg.Icon           string    Lucide icon name or asset URI (default "eye")
+	--  cfg.Text           string    optional label next to icon (pill shape when set)
+	--  cfg.Size           number    button height in px (default 48, min 44 for touch)
+	--  cfg.Position       UDim2     initial position (default bottom-left)
+	--  cfg.Visible        boolean   initial visibility (default true)
+	--  cfg.Flag           string    optional flag key for VaporLens.Flags
+	--  cfg.DragEnabled    boolean   allow drag-to-reposition (default true)
+	--  cfg.ClickCallback  function  custom tap callback; overrides default UI toggle when set
+	--  cfg.DragThreshold  number    px movement to register drag (default 4, clamped 2-20)
+	--  cfg.SnapToEdges    boolean   snap to nearest screen edge on drag end (default false)
+	--  cfg.PulseOnClick   boolean   play visual pulse on tap (default true)
+	--  cfg.ZIndex         number    override ZIndex (default 10)
+	function Window:CreateFloatingButton(cfgBtn)
+		cfgBtn = cfgBtn or {}
+
+		-- Parameter validation. O(1).
+		local BTN_SZ = math.max(type(cfgBtn.Size) == "number" and cfgBtn.Size or 48, 44)
+		local btnVisible = cfgBtn.Visible ~= false
+		local btnSessionId = sessionId
+		local hasText = type(cfgBtn.Text) == "string" and cfgBtn.Text ~= ""
+		local dragEnabled = cfgBtn.DragEnabled ~= false
+		local clickCallback = type(cfgBtn.ClickCallback) == "function" and cfgBtn.ClickCallback or nil
+		local dragThreshold = math.clamp(type(cfgBtn.DragThreshold) == "number" and cfgBtn.DragThreshold or 4, 2, 20)
+		local snapToEdges = cfgBtn.SnapToEdges == true
+		local pulseOnClick = cfgBtn.PulseOnClick ~= false
+		local fabZIndex = type(cfgBtn.ZIndex) == "number" and cfgBtn.ZIndex or 10
+
+		-- Pill geometry constants
+		local ICO_SZ = math.floor(BTN_SZ * 0.42)
+		local TEXT_PAD_L = 6
+		local TEXT_PAD_R = 14
+		local PILL_RADIUS = math.floor(BTN_SZ / 2)
+
+		local function measurePillWidth(text)
+			if not text or text == "" then return BTN_SZ end
+			local estW = math.ceil(#text * 7.2) -- GothamBold@13 ~7.2px/char
+			return math.max(BTN_SZ + TEXT_PAD_L + estW + TEXT_PAD_R, BTN_SZ + 40)
+		end
+
+		local function getViewportSize()
+			local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
+			return (ok and vp) or Vector2.new(1920, 1080)
+		end
+
+		local fabWidth = measurePillWidth(cfgBtn.Text)
+
+		-- Container frame
+		local Fab = cloak(Instance.new("Frame"))
+		Fab.Size = UDim2.new(0, fabWidth, 0, BTN_SZ)
+		Fab.Position = (typeof(cfgBtn.Position) == "UDim2" and cfgBtn.Position)
+			or UDim2.new(0, 20, 1, -(BTN_SZ + 20))
+		Fab.BackgroundColor3 = T.Glass
+		Fab.BackgroundTransparency = T.GlassTransp
+		Fab.Visible = btnVisible
+		Fab.ZIndex = fabZIndex
+		Fab.Parent = sg
+		captureInput(Fab)
+		corner(Fab, PILL_RADIUS)
+		local fabStroke = stroke(Fab, T.Glow, 0.45, 1.5)
+
+		local FabGlow = cloak(Instance.new("Frame"))
+		FabGlow.Size = UDim2.new(1, 0, 1, 0)
+		FabGlow.BackgroundColor3 = T.Glow
+		FabGlow.BackgroundTransparency = 0.92
+		FabGlow.ZIndex = 0
+		FabGlow.Parent = Fab
+		corner(FabGlow, PILL_RADIUS)
+
+		local fabIco = icoLabel(Fab, ICO_SZ, T.Glow)
+		fabIco.AnchorPoint = Vector2.new(0.5, 0.5)
+		fabIco.Position = UDim2.new(0, math.floor(BTN_SZ / 2), 0.5, 0)
+		fabIco.ZIndex = 2
+		applyIcon(fabIco, cfgBtn.Icon or "eye")
+
+		local fabLbl = cloak(Instance.new("TextLabel"))
+		fabLbl.Size = UDim2.new(1, -(BTN_SZ + TEXT_PAD_R), 1, 0)
+		fabLbl.Position = UDim2.new(0, BTN_SZ + TEXT_PAD_L, 0, 0)
+		fabLbl.BackgroundTransparency = 1
+		fabLbl.Text = cfgBtn.Text or ""
+		fabLbl.TextColor3 = T.Primary
+		fabLbl.Font = FB
+		fabLbl.TextSize = 13
+		fabLbl.TextXAlignment = Enum.TextXAlignment.Left
+		fabLbl.TextTruncate = Enum.TextTruncate.AtEnd
+		fabLbl.Visible = hasText
+		fabLbl.ZIndex = 2
+		fabLbl.Parent = Fab
+
+		local FabBtn = cloak(Instance.new("TextButton"))
+		FabBtn.Size = UDim2.new(1, 0, 1, 0)
+		FabBtn.BackgroundTransparency = 1
+		FabBtn.Text = ""
+		FabBtn.ZIndex = fabZIndex + 1
+		FabBtn.Parent = Fab
+
+		-- INPUT STATE — fixes the drag-triggers-click bug.
+		-- Tracks the specific InputObject to reliably pair began/ended events.
+		-- _wasDragged is a local flag independent of InputManager.DragState.Active,
+		-- which can be cleared by the global UIS.InputEnded handler before this fires.
+		local _activeInput = nil  -- the InputObject that started the current interaction
+		local _wasDragged = false
+		local _dragStartPos = nil -- Fab absolute position at drag start (UDim2)
+
+		-- Drag state registered with InputManager for position updates. O(1) per frame.
+		local fabDragState = {}
+		fabDragState.Active = false
+		fabDragState.Start = nil
+		fabDragState.StartPos = nil
+		fabDragState.Alive = function()
+			return Fab.Parent ~= nil and not _destroyed
+		end
+		fabDragState.Update = function(pos)
+			if not _activeInput or not fabDragState.Start or not _dragStartPos then
+				return
+			end
+			local d = pos - fabDragState.Start
+			if d.Magnitude > dragThreshold then
+				_wasDragged = true
+			end
+			if not dragEnabled then return end
+			-- Clamp within screen bounds. O(1).
+			local curW = Fab.AbsoluteSize.X
+			local vpSize = getViewportSize()
+			local newX = math.clamp(_dragStartPos.X.Offset + d.X, 0, vpSize.X - curW)
+			local newY = math.clamp(_dragStartPos.Y.Offset + d.Y, 0, vpSize.Y - BTN_SZ)
+			Fab.Position = UDim2.new(0, newX, 0, newY)
+		end
+
+		-- Snap to nearest horizontal screen edge. O(1).
+		local function snapToEdge()
+			if not snapToEdges then return end
+			local vpSize = getViewportSize()
+			local curX = Fab.AbsolutePosition.X
+			local curW = Fab.AbsoluteSize.X
+			local mid = vpSize.X / 2
+			local targetX = (curX + curW / 2) < mid and 12 or (vpSize.X - curW - 12)
+			qt(Fab, { Position = UDim2.new(0, targetX, Fab.Position.Y.Scale, Fab.Position.Y.Offset) }, 0.28, Enum.EasingStyle.Quart)
+		end
+
+		-- Visual pulse feedback. O(1).
+		local function doPulse()
+			if not pulseOnClick then return end
+			qt(fabStroke, { Transparency = 0 }, 0.08)
+			qt(FabGlow, { BackgroundTransparency = 0.75 }, 0.08)
+			task.delay(0.15, function()
+				if Fab.Parent then
+					qt(fabStroke, { Transparency = 0.45 }, 0.22)
+					qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.22)
+				end
+			end)
+		end
+
+		-- InputBegan: start tracking a specific InputObject. O(1).
+		FabBtn.InputBegan:Connect(function(inp)
+			local t = inp.UserInputType
+			if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
+			if _activeInput then return end -- already tracking an interaction
+			-- Yield to main window drag if active
+			if InputManager.DragState and InputManager.DragState.Active then return end
+
+			_activeInput = inp
+			_wasDragged = false
+			fabDragState.Active = true
+			fabDragState.Start = inp.Position
+			_dragStartPos = UDim2.new(0, Fab.AbsolutePosition.X, 0, Fab.AbsolutePosition.Y)
+			fabDragState.StartPos = _dragStartPos
+			InputManager.DragState = fabDragState
+		end)
+
+		-- InputEnded: only process the EXACT InputObject that began the interaction.
+		-- This is the core fix: we no longer rely on fabDragState.Active (which can be
+		-- cleared by InputManager's global UIS.InputEnded before this handler fires). O(1).
+		FabBtn.InputEnded:Connect(function(inp)
+			if inp ~= _activeInput then return end -- ignore unrelated inputs
+			local wasDragged = _wasDragged
+
+			-- Reset interaction state before firing callbacks (prevents re-entrancy issues)
+			_activeInput = nil
+			_wasDragged = false
+			fabDragState.Active = false
+			if InputManager.DragState == fabDragState then
+				InputManager.DragState = nil
+			end
+
+			if wasDragged then
+				-- Drag completed — optionally snap to edge
+				snapToEdge()
+			else
+				-- Tap detected — fire click action. O(1).
+				doPulse()
+				if clickCallback then
+					runCallback(clickCallback)
+				else
+					-- Default: toggle main UI visibility
+					_visible = not _visible
+					Main.Visible = _visible
+					if _visible then
+						VaporLens:Notify({
+							Title = cfg.Title or "Vapor Lens",
+							Content = "Interface restored.",
+							Icon = "monitor",
+							Duration = 3,
+						})
+					end
+				end
+			end
+		end)
+
+		-- Hover (desktop only)
+		FabBtn.MouseEnter:Connect(function()
+			qt(FabGlow, { BackgroundTransparency = 0.82 }, 0.18)
+			qt(fabStroke, { Transparency = 0.20 }, 0.18)
+		end)
+		FabBtn.MouseLeave:Connect(function()
+			qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.18)
+			qt(fabStroke, { Transparency = 0.45 }, 0.18)
+		end)
+
+		-- Entrance animation
+		Fab.BackgroundTransparency = 1
+		FabGlow.BackgroundTransparency = 1
+		fabStroke.Transparency = 1
+		fabIco.ImageTransparency = 1
+		fabLbl.TextTransparency = 1
+		task.delay(0.3, function()
+			if _destroyed or btnSessionId ~= _sessionId or not Fab.Parent then return end
+			qt(Fab, { BackgroundTransparency = T.GlassTransp }, 0.36, Enum.EasingStyle.Quart)
+			qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.36, Enum.EasingStyle.Quart)
+			qt(fabStroke, { Transparency = 0.45 }, 0.36, Enum.EasingStyle.Quart)
+			qt(fabIco, { ImageTransparency = 0 }, 0.36, Enum.EasingStyle.Quart)
+			if hasText then
+				qt(fabLbl, { TextTransparency = 0 }, 0.36, Enum.EasingStyle.Quart)
+			end
+		end)
+
+		-- Cleanup on destroy: release drag state if mid-interaction
+		Fab.AncestryChanged:Connect(function(_, parent)
+			if parent == nil then
+				_activeInput = nil
+				_wasDragged = false
+				if InputManager.DragState == fabDragState then
+					InputManager.DragState = nil
+				end
+			end
+		end)
+
+		-- Config object. O(1) all methods.
+		local fabConfig = { CurrentValue = btnVisible, Instance = Fab }
+
+		function fabConfig:Set(v)
+			if type(v) == "boolean" then
+				btnVisible = v
+				fabConfig.CurrentValue = v
+				Fab.Visible = v
+			end
+		end
+
+		function fabConfig:SetIcon(icon)
+			if icon and Fab.Parent then applyIcon(fabIco, icon) end
+		end
+
+		function fabConfig:SetText(text)
+			if not Fab.Parent then return end
+			local newHasText = type(text) == "string" and text ~= ""
+			hasText = newHasText
+			fabLbl.Text = text or ""
+			fabLbl.Visible = newHasText
+			qt(Fab, { Size = UDim2.new(0, measurePillWidth(text), 0, BTN_SZ) }, 0.28, Enum.EasingStyle.Quart)
+			if newHasText then qt(fabLbl, { TextTransparency = 0 }, 0.28, Enum.EasingStyle.Quart) end
+		end
+
+		function fabConfig:SetPosition(pos)
+			if typeof(pos) == "UDim2" and Fab.Parent then Fab.Position = pos end
+		end
+
+		function fabConfig:SetClickCallback(cb)
+			clickCallback = type(cb) == "function" and cb or nil
+		end
+
+		function fabConfig:SetDragEnabled(v)
+			dragEnabled = v == true
+		end
+
+		function fabConfig:SetDragThreshold(px)
+			dragThreshold = math.clamp(type(px) == "number" and px or 4, 2, 20)
+		end
+
+		function fabConfig:SetSnapToEdges(v)
+			snapToEdges = v == true
+		end
+
+		if cfgBtn.Flag then VaporLens.Flags[cfgBtn.Flag] = fabConfig end
+
+		return fabConfig
 	end
 
 	function Window:Destroy()
