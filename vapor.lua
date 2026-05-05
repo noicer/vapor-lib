@@ -2073,6 +2073,7 @@ function VaporLens:CreateWindow(cfg)
 			local ITEM_H = isPlayerMode and 44 or 34
 			local isOpen = false
 			local backdrop = nil -- fullscreen click-outside catcher
+			local outsideInputConn = nil
 			local selectedPlayer = nil -- PlayerMode only
 			local addedConn, removingConn
 
@@ -2194,12 +2195,17 @@ function VaporLens:CreateWindow(cfg)
 			local optSyncs = {} -- normal mode per-option sync fns
 
 			local function closeBackdrop()
+				-- Disconnect UIS click-outside handler; also scrub any legacy backdrop instance.
+				if outsideInputConn then
+					outsideInputConn:Disconnect()
+					outsideInputConn = nil
+				end
 				if backdrop and backdrop.Parent then
 					backdrop:Destroy()
 				end
 				backdrop = nil
 			end
-
+			
 			local function closeDropdown()
 				isOpen = false
 				qt(DD, { Size = UDim2.new(1, 0, 0, BASE_H) }, 0.26, Enum.EasingStyle.Quart)
@@ -2516,23 +2522,36 @@ function VaporLens:CreateWindow(cfg)
 					qt(DD, { Size = UDim2.new(1, 0, 0, expandH) }, 0.32, Enum.EasingStyle.Quart)
 					syncDropdownChevron(true)
 
-					-- Fullscreen transparent button blocks underlying controls while the dropdown owns pointer input.
 					closeBackdrop()
-					backdrop = cloak(Instance.new("TextButton"))
-					backdrop.Size = UDim2.new(1, 0, 1, 0)
-					backdrop.BackgroundTransparency = 1
-					backdrop.Text = ""
-					backdrop.ZIndex = 19
-					backdrop.Parent = Main
+
+					outsideInputConn = UIS.InputBegan:Connect(function(inp, _gpe)
+						local t = inp.UserInputType
+						if t ~= Enum.UserInputType.MouseButton1
+							and t ~= Enum.UserInputType.Touch then
+							return
+						end
+
+						task.defer(function()
+							if not isOpen then return end
+							local ok, inDD = pcall(function()
+								local pos = inp.Position
+								local ap  = DD.AbsolutePosition
+								local as  = DD.AbsoluteSize
+								return pos.X >= ap.X and pos.X <= ap.X + as.X
+									and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+							end)
+							if not (ok and inDD) then
+								closeDropdown()
+							end
+						end)
+					end)
+
 					DD.ZIndex = 20
 					HeaderRow.ZIndex = 21
 					Interact.ZIndex = 24
 					if itemContainer then
 						itemContainer.ZIndex = 21
 					end
-					backdrop.MouseButton1Click:Connect(function()
-						closeDropdown()
-					end)
 				else
 					closeDropdown()
 				end
