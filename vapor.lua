@@ -9,8 +9,6 @@ local Players = game:GetService("Players")
 
 --
 --  ANTI-DUPLICATE REGISTRY
---  Executor-wide shared table detects re-execution and destroys the previous instance.
---  Uses getgenv() (standard across 90%+ executors) with _G fallback for Studio.
 --
 local VAPOR_REGISTRY_KEY = "__VaporLens_Instance__"
 local _sharedEnv = _G
@@ -35,6 +33,7 @@ local iconReady = false
 local iconLoadFailed = false
 local iconQueue = {} -- { imageLabel, source }
 local ICON_ATLAS_URL = "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/refs/heads/main/icons.lua"
+local FALLBACK_ICON_ATLAS_URL = ""
 local DEFAULT_DROPDOWN_ICON = "chevron-down"
 local DEFAULT_COLLAPSE_ICON = "arrow-down"
 local atlasLoaderStarted = false
@@ -144,7 +143,11 @@ local function applyResolvedIcon(img, source)
 			atlasLoaderStarted = true
 			task.spawn(function()
 				local ok, res = pcall(function()
-					return loadstring(game:HttpGet(ICON_ATLAS_URL))()
+					local success, data = pcall(function() return game:HttpGet(ICON_ATLAS_URL) end)
+					if not success then
+						data = game:HttpGet(FALLBACK_ICON_ATLAS_URL)
+					end
+					return loadstring(data)()
 				end)
 				if ok and type(res) == "table" then
 					Icons = res
@@ -264,21 +267,46 @@ end
 --
 --  HELPERS
 --
+local _activeTweens = {} -- { [string_key] = Tween }
 local function qt(obj, goal, dur, style, dir)
-	if not obj then
+	if not obj or not obj.Parent then
 		return nil
 	end
 
-	local ok, tw = pcall(function()
-		if obj.Parent == nil then
-			return nil
+	-- Stop competing tweens for the same properties on this specific object.
+	for prop, _ in pairs(goal) do
+		local key = tostring(obj:GetDebugId()) .. "_" .. prop
+		if _activeTweens[key] then
+			pcall(function() _activeTweens[key]:Cancel() end)
+			_activeTweens[key] = nil
 		end
-		return TS:Create(
+	end
+
+	local ok, tw = pcall(function()
+		local tween = TS:Create(
 			obj,
 			TweenInfo.new(dur or 0.28, style or Enum.EasingStyle.Quart, dir or Enum.EasingDirection.Out),
 			goal
 		)
+		
+		-- Track properties
+		for prop, _ in pairs(goal) do
+			local key = tostring(obj:GetDebugId()) .. "_" .. prop
+			_activeTweens[key] = tween
+		end
+		
+		tween.Completed:Connect(function()
+			for prop, _ in pairs(goal) do
+				local key = tostring(obj:GetDebugId()) .. "_" .. prop
+				if _activeTweens[key] == tween then
+					_activeTweens[key] = nil
+				end
+			end
+		end)
+		
+		return tween
 	end)
+
 	if not ok or not tw then
 		return nil
 	end
@@ -514,6 +542,21 @@ local function bindHoverState(target, fillObj, borderObj, isLocked)
 	target.MouseLeave:Connect(function()
 		apply(false, false)
 	end)
+
+	-- Mobile Touch Feedback: briefly show hover state on tap
+	target.InputBegan:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.Touch then
+			apply(true, false)
+		end
+	end)
+	target.InputEnded:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.Touch then
+			task.delay(0.1, function()
+				apply(false, false)
+			end)
+		end
+	end)
+
 	apply(false, true)
 
 	return apply
@@ -554,15 +597,11 @@ end
 
 -- rowLabel(row, text, rightPx)
 -- Creates a left-aligned descriptive TextLabel that respects the right-aligned interactive element.
--- @param rightPx  pixel width of the right element + 8px gap buffer. Label width = 1, -(rightPx).
---                 Falls back to scale 0.55 if nil (legacy compat). O(1) property assignment.
 local function rowLabel(row, text, rightPx)
 	local l = cloak(Instance.new("TextLabel"))
 	if type(rightPx) == "number" and rightPx > 0 then
-		-- Offset-based: prevents overlap with right element regardless of window width or DPI
 		l.Size = UDim2.new(1, -rightPx, 1, 0)
 	else
-		-- Legacy scale fallback (should not be used for new elements)
 		l.Size = UDim2.new(0.55, 0, 1, 0)
 	end
 	l.BackgroundTransparency = 1
@@ -571,8 +610,8 @@ local function rowLabel(row, text, rightPx)
 	l.Font = FB
 	l.TextSize = 14
 	l.TextXAlignment = Enum.TextXAlignment.Left
-	l.TextWrapped = true      -- word-wrap on overflow
-	l.TextTruncate = Enum.TextTruncate.AtEnd  -- ellipsis if still overflows after wrap
+	l.TextWrapped = true
+	l.TextTruncate = Enum.TextTruncate.AtEnd
 	l.Parent = row
 	return l
 end
@@ -580,7 +619,7 @@ end
 --
 --  LIBRARY
 --
-local VaporLens = { Flags = {}, Version = "1.2" }
+local VaporLens = { Flags = {}, Version = "1.3" }
 
 local _gui = nil
 local _notifStack = {}
@@ -636,30 +675,6 @@ end
 --
 --  VaporLens:SetTheme(custom)
 --
---  Merges any keys from `custom` into the theme table T.
---  Must be called BEFORE :CreateWindow() so every element
---  picks up the new values at build time.
---
---  Available keys (all optional  only override what you want):
---
---    Glass          Color3   window background tint
---    GlassTransp    number   window background transparency  (0–1)
---    Border         Color3   window + element border colour
---    BorderTransp   number   window border transparency      (0–1)
---    Glow           Color3   accent / active colour
---    Primary        Color3   primary text colour
---    Secondary      Color3   secondary text colour
---    SecTransp      number   secondary text transparency     (0–1)
---    ElemBg         Color3   element row background tint
---    ElemTransp     number   element row transparency        (0–1)
---    ElemHoverTransp number  element hover transparency      (0–1)
---    ElemBdrTransp  number   element border transparency     (0–1)
---    ToggleOff      Color3   toggle track colour when off
---    SliderTrack    Color3   slider unfilled track colour
---    InputBg        Color3   input field background
---    SectionTransp  number   section label transparency      (0–1)
---    NotifBg        Color3   notification background
---
 function VaporLens:SetTheme(custom)
 	if type(custom) ~= "table" then
 		warn("VaporLens:SetTheme() expects a table")
@@ -697,17 +712,27 @@ end
 --
 --  NOTIFICATIONS
 --
-local function _notifPos(i)
-	return UDim2.new(1, -NF.Right, 1, -(NF.Bot + (i - 1) * (NF.H + NF.Gap)))
-end
-
-local function _reposNotifs()
-	for i, notif in ipairs(_notifStack) do
-		local frame = notif and notif.Frame
-		if frame and frame.Parent then
-			qt(frame, { Position = _notifPos(i) }, 0.28)
-		end
+local _notifContainer = nil
+local function _getNotifContainer()
+	if _notifContainer and _notifContainer.Parent then
+		return _notifContainer
 	end
+	if not _gui then return nil end
+	_notifContainer = cloak(Instance.new("Frame"))
+	_notifContainer.Name = "NotifContainer"
+	_notifContainer.Size = UDim2.new(0, NF.W, 1, -(NF.Bot + 20))
+	_notifContainer.Position = UDim2.new(1, -NF.Right, 1, -NF.Bot)
+	_notifContainer.AnchorPoint = Vector2.new(1, 1)
+	_notifContainer.BackgroundTransparency = 1
+	_notifContainer.Parent = _gui
+	
+	local l = cloak(Instance.new("UIListLayout"))
+	l.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	l.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	l.Padding = UDim.new(0, NF.Gap)
+	l.SortOrder = Enum.SortOrder.LayoutOrder
+	l.Parent = _notifContainer
+	return _notifContainer
 end
 
 local function dropNotification(notif)
@@ -723,27 +748,24 @@ local function dropNotification(notif)
 			frame:Destroy()
 		end
 	end
-
-	_reposNotifs()
 end
 
 function VaporLens:Notify(data)
 	if _destroyed or not (_gui and _gui.Parent) then
 		return nil
 	end
+	local container = _getNotifContainer()
+	if not container then return nil end
+
 	data = asTable(data)
 	local dur = safeNumber(data.Duration, 4, 0.05, 120)
-	local parent = _gui
-	local idx = #_notifStack + 1
 	local sessionId = _sessionId
 
 	local N = cloak(Instance.new("Frame"))
 	N.Size = UDim2.new(0, NF.W, 0, NF.H)
-	N.AnchorPoint = Vector2.new(1, 1)
-	N.Position = UDim2.new(1, NF.Right + 24, 1, -(NF.Bot + (idx - 1) * (NF.H + NF.Gap)))
 	N.BackgroundColor3 = T.NotifBg
 	N.BackgroundTransparency = 0.08
-	N.Parent = parent
+	N.Parent = container
 	captureInput(N)
 	corner(N, 10)
 	local nStr = stroke(N, T.Glow, 0.55, 1)
@@ -796,7 +818,11 @@ function VaporLens:Notify(data)
 	}
 
 	table.insert(_notifStack, notif)
-	qt(N, { Position = _notifPos(idx) }, 0.44, Enum.EasingStyle.Quart)
+	
+	-- Entrance animation
+	N.Size = UDim2.new(0, 0, 0, NF.H)
+	N.ClipsDescendants = true
+	qt(N, { Size = UDim2.new(0, NF.W, 0, NF.H) }, 0.44, Enum.EasingStyle.Quart)
 
 	task.delay(dur, function()
 		if _destroyed or notif.Cancelled or notif.SessionId ~= _sessionId then
@@ -806,8 +832,7 @@ function VaporLens:Notify(data)
 			dropNotification(notif)
 			return
 		end
-		local exitPos = UDim2.new(1, NF.Right + 24, N.Position.Y.Scale, N.Position.Y.Offset)
-		qt(N, { BackgroundTransparency = 1, Position = exitPos }, 0.36, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+		qt(N, { BackgroundTransparency = 1, Size = UDim2.new(0, 0, 0, NF.H) }, 0.36, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
 		qt(nStr, { Transparency = 1 }, 0.36)
 		qt(nTit, { TextTransparency = 1 }, 0.36)
 		qt(nSub, { TextTransparency = 1 }, 0.36)
@@ -917,7 +942,6 @@ function InputManager:Init()
 			local dragState = self.DragState
 			if dragState then
 				dragState.Active = false
-				-- Defer clearing so element-local InputEnded handlers can still compare ownership.
 				task.defer(function()
 					if self.DragState == dragState and not dragState.Active then
 						self.DragState = nil
@@ -1034,7 +1058,6 @@ function VaporLens:Destroy()
 	end
 	_gui = nil
 	self.Flags = {}
-	-- Clear global registry sentinel to prevent dangling references
 	if _sharedEnv[VAPOR_REGISTRY_KEY] == self then
 		_sharedEnv[VAPOR_REGISTRY_KEY] = nil
 	end
@@ -1046,8 +1069,6 @@ end
 function VaporLens:CreateWindow(cfg)
 	cfg = asTable(cfg)
 
-	-- Anti-duplicate: destroy any previous VaporLens instance from a prior script execution.
-	-- Uses shared environment registry to locate the old instance regardless of cloak() randomization.
 	local prev = _sharedEnv[VAPOR_REGISTRY_KEY]
 	if prev and prev ~= self and type(prev.Destroy) == "function" then
 		pcall(prev.Destroy, prev)
@@ -1061,8 +1082,14 @@ function VaporLens:CreateWindow(cfg)
 	_sessionId = _sessionId + 1
 	InputManager:Init()
 
-	local WIN_W = math.floor(safeNumber(cfg.Width, 480, 320, 900))
-	local WIN_H = math.floor(safeNumber(cfg.Height, 380, HDR_H + NAV_H + 120, 720))
+	local function getViewportSize()
+		local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
+		return (ok and vp) or Vector2.new(1920, 1080)
+	end
+
+	local viewSize = getViewportSize()
+	local WIN_W = math.floor(math.min(safeNumber(cfg.Width, 480, 320, 900), viewSize.X * 0.95))
+	local WIN_H = math.floor(math.min(safeNumber(cfg.Height, 380, HDR_H + NAV_H + 120, 720), viewSize.Y * 0.90))
 	local toggleKey = safeKeyCode(cfg.ToggleKey, Enum.KeyCode.RightControl)
 	local sessionId = _sessionId
 
@@ -1079,7 +1106,7 @@ function VaporLens:CreateWindow(cfg)
 		error("VaporLens | Failed to mount into a protected GUI container")
 	end
 
-	--  Main container  FIXED SIZE
+	--  Main container
 	local Main = cloak(Instance.new("Frame"))
 	Main.Size = UDim2.new(0, WIN_W, 0, WIN_H)
 	Main.Position = UDim2.new(0.5, -WIN_W / 2, 0.5, -WIN_H / 2)
@@ -1151,7 +1178,7 @@ function VaporLens:CreateWindow(cfg)
 	captureInput(InnerClip)
 	corner(InnerClip, 18)
 
-	--  HEADER (82px  identical to original)
+	--  HEADER (82px)
 	local Header = cloak(Instance.new("Frame"))
 	Header.Size = UDim2.new(1, 0, 0, HDR_H)
 	Header.BackgroundTransparency = 1
@@ -1167,7 +1194,6 @@ function VaporLens:CreateWindow(cfg)
 	})
 	hGrad.Parent = Header
 
-	-- Icon box  absolute left (32×32, matches original)
 	local IcoBox = cloak(Instance.new("Frame"))
 	IcoBox.Size = UDim2.new(0, 32, 0, 32)
 	IcoBox.Position = UDim2.new(0, 0, 0.5, -16)
@@ -1185,7 +1211,6 @@ function VaporLens:CreateWindow(cfg)
 	IcoImg.Position = UDim2.new(0.5, -9, 0.5, -9)
 	applyIcon(IcoImg, cfg.Icon or "droplets")
 
-	-- Collapse button  absolute right
 	local ColBtn, ColIcon = createIconButton(Header, {
 		Size = UDim2.new(0, 32, 0, 32),
 		Position = UDim2.new(1, -32, 0.5, -16),
@@ -1194,7 +1219,6 @@ function VaporLens:CreateWindow(cfg)
 		Color = T.Glow,
 	})
 
-	-- Title / subtitle  fills between icon and collapse btn
 	local TxtBlk = cloak(Instance.new("Frame"))
 	TxtBlk.Size = UDim2.new(1, -(32 + 15 + 32 + 10), 1, 0)
 	TxtBlk.Position = UDim2.new(0, 32 + 15, 0, 0)
@@ -1224,7 +1248,7 @@ function VaporLens:CreateWindow(cfg)
 	SubLbl.TextXAlignment = Enum.TextXAlignment.Left
 	SubLbl.Parent = TxtBlk
 
-	--  NAV BAR (32px, horizontal tabs, matches original)
+	--  NAV BAR
 	local Nav = cloak(Instance.new("ScrollingFrame"))
 	Nav.Size = UDim2.new(1, 0, 0, NAV_H)
 	Nav.Position = UDim2.new(0, 0, 0, HDR_H)
@@ -1239,10 +1263,7 @@ function VaporLens:CreateWindow(cfg)
 	pad(Nav, PAD, PAD, 0, 0)
 	hList(Nav, 20, Enum.VerticalAlignment.Center)
 
-	-- Custom drag-to-scroll for Nav.
-	-- Owns a specific InputObject so it cannot conflict with window/floating/slider drags.
 	local navDrag = { active = false, input = nil, startX = 0, startCanvas = 0 }
-	
 	trackConnection(Nav.InputBegan:Connect(function(inp)
 		if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
 			if InputManager.ActiveSlider or (InputManager.DragState and InputManager.DragState.Active) then
@@ -1254,47 +1275,28 @@ function VaporLens:CreateWindow(cfg)
 			navDrag.startCanvas = Nav.CanvasPosition.X
 		end
 	end))
-	
+
+	trackConnection(UIS.InputChanged:Connect(function(inp)
+		if navDrag.active and inp == navDrag.input then
+			local delta = inp.Position.X - navDrag.startX
+			Nav.CanvasPosition = Vector2.new(navDrag.startCanvas - delta, 0)
+		end
+	end))
+
 	trackConnection(Nav.InputEnded:Connect(function(inp)
 		if navDrag.input == inp or inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
 			navDrag.active = false
 			navDrag.input = nil
 		end
 	end))
-	
-	InputManager.Connections.NavDrag = UIS.InputChanged:Connect(function(inp)
-		if navDrag.active and not InputManager.ActiveSlider and not (InputManager.DragState and InputManager.DragState.Active)
-			and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-			local delta = navDrag.startX - inp.Position.X
-			local maxScroll = math.max(0, Nav.AbsoluteCanvasSize.X - Nav.AbsoluteWindowSize.X)
-			Nav.CanvasPosition = Vector2.new(math.clamp(navDrag.startCanvas + delta, 0, maxScroll), 0)
-		end
-	end)
 
-	InputManager.Connections.NavDragEnd = UIS.InputEnded:Connect(function(inp)
-		if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-			if navDrag.active then
-				navDrag.active = false
-				navDrag.input = nil
-			end
-		end
-	end)
-
-	--  SCROLLABLE CONTENT
-	--  Fixed height = WIN_H - header - nav.
-	--  Elements scroll inside; scrollbar appears only on overflow.
-	local CONTENT_Y = HDR_H + NAV_H
-	local CONTENT_H = WIN_H - CONTENT_Y
-
+	--  CONTENT
 	local ContentFrame = cloak(Instance.new("Frame"))
-	ContentFrame.Size = UDim2.new(1, 0, 0, CONTENT_H)
-	ContentFrame.Position = UDim2.new(0, 0, 0, CONTENT_Y)
+	ContentFrame.Size = UDim2.new(1, 0, 1, -(HDR_H + NAV_H))
+	ContentFrame.Position = UDim2.new(0, 0, 0, HDR_H + NAV_H)
 	ContentFrame.BackgroundTransparency = 1
-	ContentFrame.ClipsDescendants = true
 	ContentFrame.Parent = InnerClip
-	captureInput(ContentFrame)
 
-	--  TAB STATE
 	local _pages = {}
 	local _navBtns = {}
 	local _navUnderlines = {}
@@ -1303,9 +1305,8 @@ function VaporLens:CreateWindow(cfg)
 	local _activeId = nil
 	local _activePageConns = {}
 
-	--  GLOBAL CUSTOM SCROLLBAR (Elegant curved tip solution)
 	local GlobalScrollTrack = cloak(Instance.new("Frame"))
-	GlobalScrollTrack.Size = UDim2.new(0, 4, 1, -40)
+	GlobalScrollTrack.Size = UDim2.new(0, 6, 0.8, 0)
 	GlobalScrollTrack.AnchorPoint = Vector2.new(1, 0.5)
 	GlobalScrollTrack.Position = UDim2.new(1, -8, 0.5, 0)
 	GlobalScrollTrack.BackgroundTransparency = 1
@@ -1409,54 +1410,24 @@ function VaporLens:CreateWindow(cfg)
 	end
 
 	trackConnection(Header.InputBegan:Connect(function(inp)
-		if inp.UserInputType ~= Enum.UserInputType.MouseButton1 and inp.UserInputType ~= Enum.UserInputType.Touch then
-			return
+		if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+			if InputManager.DragState and InputManager.DragState.Active then return end
+			dragState.Active = true
+			dragState.Start = inp.Position
+			dragState.StartPos = Main.Position
+			dragState.Input = inp
+			InputManager.DragState = dragState
 		end
-		if InputManager.ActiveSlider or (InputManager.DragState and InputManager.DragState.Active) then
-			return
-		end
-		dragState.Active = true
-		dragState.Input = inp
-		dragState.Start = inp.Position
-		dragState.StartPos = Main.Position
-		InputManager.DragState = dragState
 	end))
 
-	--  COLLAPSE
-	local _collapsed = false
-	ColBtn.MouseButton1Click:Connect(function()
-		_collapsed = not _collapsed
-		if _collapsed then
-			Main:SetAttribute("ExpandedY", WIN_H)
-			qt(Main, { Size = UDim2.new(0, WIN_W, 0, HDR_H) }, 0.5, Enum.EasingStyle.Exponential)
-			qt(ColIcon, { Rotation = -90 }, 0.4, Enum.EasingStyle.Back)
-		else
-			local tY = Main:GetAttribute("ExpandedY") or WIN_H
-			qt(Main, { Size = UDim2.new(0, WIN_W, 0, tY) }, 0.5, Enum.EasingStyle.Exponential)
-			qt(ColIcon, { Rotation = 0 }, 0.4, Enum.EasingStyle.Back)
-		end
-	end)
-
-	--  VISIBILITY KEYBIND
-	local _visible = true
+	--  TOGGLE KEY
 	InputManager.ToggleHandler = {
-		Alive = function()
-			return Main.Parent ~= nil and not _destroyed
-		end,
-		GetKey = function()
-			return toggleKey
-		end,
+		Alive = function() return Main.Parent ~= nil end,
+		GetKey = function() return toggleKey end,
 		Callback = function()
-			_visible = not _visible
-				Main.Visible = _visible
-				if _visible then
-					VaporLens:Notify({
-						Title = safeText(cfg.Title, "Vapor Lens"),
-						Content = "Interface restored.",
-						Icon = "monitor",
-						Duration = 3,
-					})
-			end
+			local nextVis = not Main.Visible
+			Main.Visible = nextVis
+			Main.Active = nextVis
 		end,
 	}
 
@@ -1481,15 +1452,16 @@ function VaporLens:CreateWindow(cfg)
 		qt(InnerGlassStroke, { Transparency = 0.78 }, 0.52, Enum.EasingStyle.Exponential)
 	end)
 
-	--
-	--  WINDOW OBJECT
-	--
-	local Window = {}
+	local Window = { Visible = true }
 
-	--
-	--  Window:CreateTab(title, iconName?)
-	--  or  Window:CreateTab({ Title = "...", Icon = "..." })
-	--
+	function Window:SetVisible(v)
+		v = (v == true)
+		if self.Visible == v then return end
+		self.Visible = v
+		Main.Visible = v
+		Main.Active = v
+	end
+
 	function Window:CreateTab(titleOrCfg, iconName)
 		local tabName, tabIcon
 		if type(titleOrCfg) == "table" then
@@ -1501,7 +1473,6 @@ function VaporLens:CreateWindow(cfg)
 		end
 		local tabId = nextId("tab")
 
-		-- Nav button (matches original: AutomaticSize.X, underline)
 		local NavBtn = cloak(Instance.new("TextButton"))
 		NavBtn.Size = UDim2.new(0, 0, 1, 0)
 		NavBtn.AutomaticSize = Enum.AutomaticSize.X
@@ -1526,18 +1497,17 @@ function VaporLens:CreateWindow(cfg)
 		_tabNames[tabId] = tabName
 		table.insert(_tabOrder, tabId)
 
-		-- Scrollable page  fills the content frame, scrolls on Y
 		local Page = cloak(Instance.new("ScrollingFrame"))
 		Page.Size = UDim2.new(1, 0, 1, 0)
 		Page.BackgroundTransparency = 1
 		Page.BorderSizePixel = 0
-		Page.ScrollBarThickness = 0 -- Ocultado o nativo em favor do GlobalScrollThumb
+		Page.ScrollBarThickness = 0
 		Page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 		Page.CanvasSize = UDim2.new(0, 0, 0, 0)
 		Page.Visible = false
 		Page.Parent = ContentFrame
 		captureInput(Page)
-		pad(Page, PAD, PAD, PAD, PAD)
+		pad(Page, PAD, PAD, PAD, PAD + 20)
 		vList(Page, 12)
 
 		_pages[tabId] = Page
@@ -1549,9 +1519,6 @@ function VaporLens:CreateWindow(cfg)
 			activateTab(tabId)
 		end)
 
-		--
-		--  TAB ELEMENT FACTORIES
-		--
 		local Tab = { Id = tabId, Name = tabName }
 
 		function Tab:Destroy()
@@ -1598,7 +1565,6 @@ function VaporLens:CreateWindow(cfg)
 			end
 		end
 
-		--  CreateSection
 		function Tab:CreateSection(name)
 			local Sec = cloak(Instance.new("Frame"))
 			Sec.Size = UDim2.new(1, 0, 0, 28)
@@ -1631,12 +1597,9 @@ function VaporLens:CreateWindow(cfg)
 			sl.Parent = Sec
 		end
 
-		--  CreateToggle
-		--  36×18 track, 14px ball  identical to v1.6 original
 		function Tab:CreateToggle(s)
 			s = asTable(s)
 			local Row, _ = baseRow(Page)
-			-- Toggle track: 36px wide, positioned at UDim2(1, -36, ...). Gap = 8px. Total = 44px.
 			rowLabel(Row, safeText(s.Name, ""), 44)
 
 			local isOn = s.CurrentValue == true
@@ -1657,12 +1620,7 @@ function VaporLens:CreateWindow(cfg)
 			corner(Ball, 7)
 
 			local function applyState(on)
-				qt(
-					Ball,
-					{ Position = on and UDim2.new(0, 20, 0, 2) or UDim2.new(0, 2, 0, 2) },
-					0.3,
-					Enum.EasingStyle.Quart
-				)
+				qt(Ball, { Position = on and UDim2.new(0, 20, 0, 2) or UDim2.new(0, 2, 0, 2) }, 0.3, Enum.EasingStyle.Quart)
 				qt(Track, { BackgroundColor3 = on and T.Glow or T.ToggleOff }, 0.3)
 			end
 
@@ -1695,7 +1653,6 @@ function VaporLens:CreateWindow(cfg)
 			return s
 		end
 
-		--  CreateSlider
 		function Tab:CreateSlider(s)
 			s = asTable(s)
 			local range = asTable(s.Range)
@@ -1709,10 +1666,23 @@ function VaporLens:CreateWindow(cfg)
 			local cur = math.clamp(safeNumber(s.CurrentValue, minV), minV, maxV)
 			local span = math.max(maxV - minV, 1)
 
-			local Row, _ = baseRow(Page, ELEM_TALL)
+			local function formatVal(v)
+				local precision = 0
+				local strInc = tostring(inc)
+				local dot = strInc:find("%.")
+				if dot then
+					precision = #strInc - dot
+				end
+				local fmt = "%." .. precision .. "f"
+				local out = string.format(fmt, v)
+				if dot then
+					out = out:gsub("%.?0+$", "")
+					if out == "" or out == "-" then out = "0" end
+				end
+				return out
+			end
 
-			-- Slider name label: shares top row with value label (right-aligned at 0.4 scale).
-			-- Use 0.6 scale here since both labels are in the top half of the tall row. O(1).
+			local Row, _ = baseRow(Page, ELEM_TALL)
 			local nameLbl = cloak(Instance.new("TextLabel"))
 			nameLbl.Size = UDim2.new(0.6, 0, 0, 22)
 			nameLbl.Position = UDim2.new(0, 0, 0, 12)
@@ -1726,12 +1696,11 @@ function VaporLens:CreateWindow(cfg)
 			nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
 			nameLbl.Parent = Row
 
-			-- Value label right-aligned, glow colour (matches "82%" in original)
 			local valLbl = cloak(Instance.new("TextLabel"))
 			valLbl.Size = UDim2.new(0.4, 0, 0, 22)
 			valLbl.Position = UDim2.new(0.6, 0, 0, 12)
 			valLbl.BackgroundTransparency = 1
-			valLbl.Text = tostring(cur) .. suf
+			valLbl.Text = formatVal(cur) .. suf
 			valLbl.TextColor3 = T.Glow
 			valLbl.Font = FB
 			valLbl.TextSize = 12
@@ -1758,8 +1727,18 @@ function VaporLens:CreateWindow(cfg)
 			Thumb.AnchorPoint = Vector2.new(0.5, 0.5)
 			Thumb.Position = UDim2.new((cur - minV) / span, 0, 0.5, 0)
 			Thumb.BackgroundColor3 = Color3.new(1, 1, 1)
+			Thumb.ZIndex = 2
 			Thumb.Parent = TrkBg
 			corner(Thumb, 7)
+
+			local HitBox = cloak(Instance.new("TextButton"))
+			HitBox.Size = UDim2.new(0, 32, 0, 32)
+			HitBox.Position = UDim2.new(0.5, 0, 0.5, 0)
+			HitBox.AnchorPoint = Vector2.new(0.5, 0.5)
+			HitBox.BackgroundTransparency = 1
+			HitBox.Text = ""
+			HitBox.ZIndex = 3
+			HitBox.Parent = Thumb
 
 			local function snap(v)
 				return math.round((v - minV) / inc) * inc + minV
@@ -1771,7 +1750,7 @@ function VaporLens:CreateWindow(cfg)
 				local r2 = (cur - minV) / span
 				Fill.Size = UDim2.new(r2, 0, 1, 0)
 				Thumb.Position = UDim2.new(r2, 0, 0.5, 0)
-				valLbl.Text = tostring(cur) .. suf
+				valLbl.Text = formatVal(cur) .. suf
 				s.CurrentValue = cur
 				if s.Callback then
 					runCallback(s.Callback, cur)
@@ -1780,19 +1759,20 @@ function VaporLens:CreateWindow(cfg)
 
 			local sliderController = {
 				Scope = tabId,
-				Alive = function()
-					return TrkBg.Parent ~= nil and Row.Parent ~= nil
-				end,
+				Alive = function() return TrkBg.Parent ~= nil and Row.Parent ~= nil end,
 				Update = setVal,
 			}
 
 			TrkBg.InputBegan:Connect(function(inp)
-				if
-					inp.UserInputType == Enum.UserInputType.MouseButton1
-					or inp.UserInputType == Enum.UserInputType.Touch
-				then
+				if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
 					InputManager.ActiveSlider = sliderController
 					setVal(inp.Position.X)
+				end
+			end)
+
+			HitBox.InputBegan:Connect(function(inp)
+				if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+					InputManager.ActiveSlider = sliderController
 				end
 			end)
 
@@ -1812,7 +1792,7 @@ function VaporLens:CreateWindow(cfg)
 				local r = (cur - minV) / span
 				Fill.Size = UDim2.new(r, 0, 1, 0)
 				Thumb.Position = UDim2.new(r, 0, 0.5, 0)
-				valLbl.Text = tostring(cur) .. suf
+				valLbl.Text = formatVal(cur) .. suf
 				s.CurrentValue = cur
 				if s.Callback then
 					runCallback(s.Callback, cur)
@@ -1822,15 +1802,12 @@ function VaporLens:CreateWindow(cfg)
 			return s
 		end
 
-		--  CreateButton
 		function Tab:CreateButton(s)
 			s = asTable(s)
 			local Row, _ = baseRow(Page)
-			-- Button: max 88px wide (icon variant) + 8px gap = 96px right offset.
 			local btnW = s.Icon and 88 or 72
 			rowLabel(Row, safeText(s.Name, ""), btnW + 8)
 
-			-- btnW already calculated above for rowLabel offset
 			local RunBtn = cloak(Instance.new("TextButton"))
 			RunBtn.Size = UDim2.new(0, btnW, 0, 26)
 			RunBtn.Position = UDim2.new(1, -btnW, 0.5, -13)
@@ -1845,17 +1822,14 @@ function VaporLens:CreateWindow(cfg)
 			stroke(RunBtn, T.Glow, 0.65, 1)
 
 			if s.Icon then
-				-- Icon + "Run" label laid out horizontally inside the button
 				local inner = cloak(Instance.new("Frame"))
 				inner.Size = UDim2.new(1, -8, 1, 0)
 				inner.Position = UDim2.new(0, 4, 0, 0)
 				inner.BackgroundTransparency = 1
 				inner.Parent = RunBtn
 				hList(inner, 4, Enum.VerticalAlignment.Center)
-
 				local ico = icoLabel(inner, 14, T.Glow)
 				applyIcon(ico, s.Icon)
-
 				local runLbl = cloak(Instance.new("TextLabel"))
 				runLbl.Size = UDim2.new(1, -18, 1, 0)
 				runLbl.BackgroundTransparency = 1
@@ -1876,19 +1850,15 @@ function VaporLens:CreateWindow(cfg)
 			end)
 
 			function s:Set(label)
-				if not s.Icon then
-					RunBtn.Text = safeText(label, safeText(s.Name, ""))
-				end
+				if not s.Icon then RunBtn.Text = safeText(label, safeText(s.Name, "")) end
 			end
 
 			return s
 		end
 
-		--  CreateInput
 		function Tab:CreateInput(s)
 			s = asTable(s)
 			local Row, _ = baseRow(Page)
-			-- Input frame: 152px wide + 8px gap = 160px right offset.
 			rowLabel(Row, safeText(s.Name, ""), 160)
 
 			local IFrm = cloak(Instance.new("Frame"))
@@ -1918,47 +1888,32 @@ function VaporLens:CreateWindow(cfg)
 
 			IBox.FocusLost:Connect(function()
 				s.CurrentValue = IBox.Text
-				if s.RemoveTextAfterFocusLost then
-					IBox.Text = ""
-				end
-				if s.Flag then
-					rememberFlag(s.Flag, s)
-				end
-				if s.Callback then
-					runCallback(s.Callback, s.CurrentValue)
-				end
+				if s.RemoveTextAfterFocusLost then IBox.Text = "" end
+				if s.Flag then rememberFlag(s.Flag, s) end
+				if s.Callback then runCallback(s.Callback, s.CurrentValue) end
 			end)
 
 			local maxLength = type(s.MaxLength) == "number" and math.max(0, math.floor(s.MaxLength)) or nil
 			if maxLength then
-				-- Truncate silently; do NOT fire Callback on truncation
 				IBox:GetPropertyChangedSignal("Text"):Connect(function()
-					if #IBox.Text > maxLength then
-						IBox.Text = string.sub(IBox.Text, 1, maxLength)
-					end
+					if #IBox.Text > maxLength then IBox.Text = string.sub(IBox.Text, 1, maxLength) end
 				end)
 			end
 
-			if s.Flag then
-				rememberFlag(s.Flag, s)
-			end
+			if s.Flag then rememberFlag(s.Flag, s) end
 
 			function s:Set(v)
 				IBox.Text = safeText(v, "")
 				s.CurrentValue = IBox.Text
-				if s.Callback then
-					runCallback(s.Callback, s.CurrentValue)
-				end
+				if s.Callback then runCallback(s.Callback, s.CurrentValue) end
 			end
 
 			return s
 		end
 
-		--  CreateKeybind
 		function Tab:CreateKeybind(s)
 			s = asTable(s)
 			local Row, _ = baseRow(Page)
-			-- Keybind button: 96px wide + 8px gap = 104px right offset.
 			rowLabel(Row, safeText(s.Name, ""), 104)
 
 			local cur = safeKeyCode(s.CurrentKeybind, Enum.KeyCode.Unknown)
@@ -1994,40 +1949,25 @@ function VaporLens:CreateWindow(cfg)
 				listening = false
 				s.CurrentKeybind = cur
 				updateVisual()
-				if s.Flag then
-					rememberFlag(s.Flag, s)
-				end
-				if triggerChange and s.CallOnChange and s.Callback then
-					runCallback(s.Callback, cur)
-				end
+				if s.Flag then rememberFlag(s.Flag, s) end
+				if triggerChange and s.CallOnChange and s.Callback then runCallback(s.Callback, cur) end
 			end
 
 			keybindController = {
 				Scope = tabId,
 				HoldToInteract = s.HoldToInteract == true,
 				Held = false,
-				Alive = function()
-					return KBtn.Parent ~= nil and Row.Parent ~= nil
-				end,
-				GetKey = function()
-					return cur
-				end,
+				Alive = function() return KBtn.Parent ~= nil and Row.Parent ~= nil end,
+				GetKey = function() return cur end,
 				Callback = (not s.CallOnChange) and s.Callback or nil,
-				SetKey = function(key)
-					applyKey(key, true)
-				end,
-				CancelListen = function()
-					listening = false
-					updateVisual()
-				end,
+				SetKey = function(key) applyKey(key, true) end,
+				CancelListen = function() listening = false updateVisual() end,
 			}
 
 			bindingId = InputManager:RegisterKeybind(keybindController)
 
 			KBtn.MouseButton1Click:Connect(function()
-				if listening then
-					return
-				end
+				if listening then return end
 				if InputManager.ListeningKeybind and InputManager.ListeningKeybind ~= keybindController then
 					InputManager:CancelListening(InputManager.ListeningKeybind)
 				end
@@ -2039,30 +1979,23 @@ function VaporLens:CreateWindow(cfg)
 			Row.AncestryChanged:Connect(function(_, parent)
 				if parent == nil then
 					InputManager:UnregisterKeybind(bindingId)
-					if InputManager.ListeningKeybind == keybindController then
-						InputManager:CancelListening(keybindController)
-					end
+					if InputManager.ListeningKeybind == keybindController then InputManager:CancelListening(keybindController) end
 				end
 			end)
 
 			s.CurrentKeybind = cur
-			if s.Flag then
-				rememberFlag(s.Flag, s)
-			end
+			if s.Flag then rememberFlag(s.Flag, s) end
 
-			function s:Set(v)
-				applyKey(v, false)
-			end
+			function s:Set(v) applyKey(v, false) end
 
 			return s
 		end
 
-		--  CreateDropdown (full replacement: PlayerMode, avatar rows, height cap, click-outside backdrop)
 		function Tab:CreateDropdown(s)
 			s = asTable(s)
 			local isMulti = s.MultipleOptions == true
 			local isPlayerMode = s.PlayerMode == true
-			local showSelf = s.ShowSelf ~= false -- default true
+			local showSelf = s.ShowSelf ~= false
 
 			local avatarScale = safeNumber(s.AvatarScale, 1.25, 0.5, 2)
 			local displayNameScale = safeNumber(s.DisplayNameScale, 1.15, 0.5, 2)
@@ -2072,34 +2005,28 @@ function VaporLens:CreateWindow(cfg)
 			local BASE_H = ELEM_H
 			local ITEM_H = isPlayerMode and 44 or 34
 			local isOpen = false
-			local backdrop = nil -- fullscreen click-outside catcher
+			local backdrop = nil
 			local outsideInputConn = nil
-			local selectedPlayer = nil -- PlayerMode only
+			local selectedPlayer = nil
 			local addedConn, removingConn
 
 			local closedDropdownIcon = s.ClosedIcon or s.DropdownIcon or DEFAULT_DROPDOWN_ICON
 			local openDropdownIcon = s.OpenIcon or s.DropdownIconOpen or closedDropdownIcon
 
-			-- Options: array of strings (normal) or Player instances (PlayerMode)
 			local options = {}
 			if isPlayerMode then
 				for _, p in ipairs(Players:GetPlayers()) do
-					if showSelf or p ~= Players.LocalPlayer then
-						table.insert(options, p)
-					end
+					if showSelf or p ~= Players.LocalPlayer then table.insert(options, p) end
 				end
 			else
 				options = normalizeOptions(s.Options)
 			end
 
-			-- Selection state for normal mode (keyed by string option value)
 			local sel = {}
 			if not isPlayerMode then
 				if s.CurrentOption then
 					if type(s.CurrentOption) == "table" then
-						for _, v in ipairs(s.CurrentOption) do
-							sel[safeText(v, "")] = true
-						end
+						for _, v in ipairs(s.CurrentOption) do sel[safeText(v, "")] = true end
 					elseif type(s.CurrentOption) == "string" then
 						sel[s.CurrentOption] = true
 					end
@@ -2109,19 +2036,14 @@ function VaporLens:CreateWindow(cfg)
 			end
 
 			local DD, ddStr = createDropdownShell(Page, BASE_H)
-
 			local HeaderRow = cloak(Instance.new("Frame"))
 			HeaderRow.Size = UDim2.new(1, 0, 0, BASE_H)
 			HeaderRow.BackgroundTransparency = 1
 			HeaderRow.ZIndex = 2
 			HeaderRow.Parent = DD
 
-			local syncDropdownHover = bindHoverState(DD, DD, ddStr, function()
-				return isOpen
-			end)
+			local syncDropdownHover = bindHoverState(DD, DD, ddStr, function() return isOpen end)
 
-			-- Dropdown name label: right container uses 0.5 scale - 34px, plus 30px chevron zone.
-			-- Constrain to 0.5 scale to prevent overlap with RightContainer. O(1).
 			local nameLbl = cloak(Instance.new("TextLabel"))
 			nameLbl.Size = UDim2.new(0.5, -8, 0, BASE_H)
 			nameLbl.BackgroundTransparency = 1
@@ -2150,7 +2072,6 @@ function VaporLens:CreateWindow(cfg)
 			RightLayout.Padding = UDim.new(0, 8)
 			RightLayout.Parent = RightContainer
 
-			-- LayoutOrder 1:
 			local headerAvatar = nil
 			if isPlayerMode then
 				headerAvatar = cloak(Instance.new("ImageLabel"))
@@ -2164,7 +2085,6 @@ function VaporLens:CreateWindow(cfg)
 				corner(headerAvatar, math.floor(hAvSize / 2))
 			end
 
-			-- LayoutOrder 2:
 			local selLbl = cloak(Instance.new("TextLabel"))
 			selLbl.Size = UDim2.new(1, 0, 1, 0)
 			selLbl.BackgroundTransparency = 1
@@ -2192,20 +2112,14 @@ function VaporLens:CreateWindow(cfg)
 			syncDropdownChevron(false)
 
 			local ibtnList = {}
-			local optSyncs = {} -- normal mode per-option sync fns
+			local optSyncs = {}
 
 			local function closeBackdrop()
-				-- Disconnect UIS click-outside handler; also scrub any legacy backdrop instance.
-				if outsideInputConn then
-					outsideInputConn:Disconnect()
-					outsideInputConn = nil
-				end
-				if backdrop and backdrop.Parent then
-					backdrop:Destroy()
-				end
+				if outsideInputConn then outsideInputConn:Disconnect() outsideInputConn = nil end
+				if backdrop and backdrop.Parent then backdrop:Destroy() end
 				backdrop = nil
 			end
-			
+
 			local function closeDropdown()
 				isOpen = false
 				qt(DD, { Size = UDim2.new(1, 0, 0, BASE_H) }, 0.26, Enum.EasingStyle.Quart)
@@ -2214,21 +2128,11 @@ function VaporLens:CreateWindow(cfg)
 			end
 
 			local function selText()
-				if isPlayerMode then
-					return selectedPlayer and selectedPlayer.DisplayName or "None"
-				end
+				if isPlayerMode then return selectedPlayer and selectedPlayer.DisplayName or "None" end
 				local parts = {}
-				for _, o in ipairs(options) do
-					if sel[o] then
-						table.insert(parts, o)
-					end
-				end
-				if #parts == 0 then
-					return "None"
-				end
-				if isMulti and #parts > 1 then
-					return "Various"
-				end
+				for _, o in ipairs(options) do if sel[o] then table.insert(parts, o) end end
+				if #parts == 0 then return "None" end
+				if isMulti and #parts > 1 then return "Various" end
 				return parts[1]
 			end
 
@@ -2236,7 +2140,6 @@ function VaporLens:CreateWindow(cfg)
 				selectedPlayer = player
 				if headerAvatar then
 					if player then
-						-- rbxthumb URIs load silently; invalid userId shows nothing
 						headerAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=48&h=48"
 						qt(headerAvatar, { ImageTransparency = 0 }, 0.18)
 					else
@@ -2246,13 +2149,10 @@ function VaporLens:CreateWindow(cfg)
 				selLbl.Text = selText()
 			end
 
-			-- The item container is either a ScrollingFrame (>5 options) or a plain Frame
 			local itemContainer = nil
 
 			local function buildItemContainer()
-				if itemContainer and itemContainer.Parent then
-					itemContainer:Destroy()
-				end
+				if itemContainer and itemContainer.Parent then itemContainer:Destroy() end
 				itemContainer = nil
 				ibtnList = {}
 
@@ -2289,19 +2189,15 @@ function VaporLens:CreateWindow(cfg)
 
 				if isPlayerMode then
 					for _, player in ipairs(options) do
-						local isLocal = player == Players.LocalPlayer
-						local isSelected = player == selectedPlayer
-
 						local IBtn = cloak(Instance.new("TextButton"))
 						IBtn.Size = UDim2.new(1, 0, 0, ITEM_H)
-						IBtn.BackgroundColor3 = isSelected and T.Glow or T.ElemBg
-						IBtn.BackgroundTransparency = isSelected and 0.84 or 0.99
+						IBtn.BackgroundColor3 = T.ElemBg
+						IBtn.BackgroundTransparency = 0.99
 						IBtn.Text = ""
 						IBtn.ZIndex = 22
 						IBtn.Parent = itemContainer
 						corner(IBtn, 7)
 
-						-- Avatar
 						local avatarImg = cloak(Instance.new("ImageLabel"))
 						local iAvSize = math.floor(24 * avatarScale)
 						avatarImg.Size = UDim2.new(0, iAvSize, 0, iAvSize)
@@ -2346,17 +2242,12 @@ function VaporLens:CreateWindow(cfg)
 						IBtn.MouseButton1Click:Connect(function()
 							updateHeaderPlayer(player)
 							s.CurrentOption = player
-							if s.Flag then
-								rememberFlag(s.Flag, s)
-							end
-							if s.Callback then
-								runCallback(s.Callback, player)
-							end
+							if s.Flag then rememberFlag(s.Flag, s) end
+							if s.Callback then runCallback(s.Callback, player) end
 							closeDropdown()
 						end)
 					end
 				else
-					-- Normal (string) mode
 					for _, opt in ipairs(options) do
 						local IBtn = cloak(Instance.new("TextButton"))
 						IBtn.Size = UDim2.new(1, 0, 0, ITEM_H)
@@ -2392,119 +2283,60 @@ function VaporLens:CreateWindow(cfg)
 							qt(IBtn, { BackgroundTransparency = sel[opt] and 0.84 or 0.99 }, 0.18)
 							qt(IBtn, { BackgroundColor3 = sel[opt] and T.Glow or T.ElemBg }, 0.18)
 							ck.Text = sel[opt] and "●" or ""
-							qt(optLbl, {
-								TextColor3 = sel[opt] and T.Glow or T.Primary,
-								TextTransparency = sel[opt] and 0 or T.SecTransp,
-							}, 0.18)
+							qt(optLbl, { TextColor3 = sel[opt] and T.Glow or T.Primary, TextTransparency = sel[opt] and 0 or T.SecTransp }, 0.18)
 						end
 						optSyncs[opt] = sync
 
 						table.insert(ibtnList, IBtn)
 
 						IBtn.MouseButton1Click:Connect(function()
-							if isMulti then
-								sel[opt] = not sel[opt]
-							else
-								for k in pairs(sel) do
-									sel[k] = false
-								end
+							if isMulti then sel[opt] = not sel[opt] else
+								for k in pairs(sel) do sel[k] = false end
 								sel[opt] = true
 							end
-							for _, fn in pairs(optSyncs) do
-								fn()
-							end
+							for _, fn in pairs(optSyncs) do fn() end
 							selLbl.Text = selText()
-
 							local chosen = {}
-							for _, o in ipairs(options) do
-								if sel[o] then
-									table.insert(chosen, o)
-								end
-							end
+							for _, o in ipairs(options) do if sel[o] then table.insert(chosen, o) end end
 							s.CurrentOption = isMulti and chosen or chosen[1]
-							if s.Flag then
-								rememberFlag(s.Flag, s)
-							end
-							if s.Callback then
-								runCallback(s.Callback, s.CurrentOption)
-							end
-
-							if not isMulti then
-								closeDropdown()
-							end
+							if s.Flag then rememberFlag(s.Flag, s) end
+							if s.Callback then runCallback(s.Callback, s.CurrentOption) end
+							if not isMulti then closeDropdown() end
 						end)
 					end
 				end
 			end
 
-			-- Initial build
 			buildItems()
 			selLbl.Text = selText()
 
-			-- PlayerMode: live player tracking via PlayerAdded / PlayerRemoving
 			if isPlayerMode then
 				local function rebuildPlayerOptions()
 					options = {}
 					for _, p in ipairs(Players:GetPlayers()) do
-						if showSelf or p ~= Players.LocalPlayer then
-							table.insert(options, p)
-						end
+						if showSelf or p ~= Players.LocalPlayer then table.insert(options, p) end
 					end
-
-					-- If selected player is gone, reset selection
 					if selectedPlayer then
 						local found = false
-						for _, p in ipairs(options) do
-							if p == selectedPlayer then
-								found = true
-								break
-							end
-						end
+						for _, p in ipairs(options) do if p == selectedPlayer then found = true break end end
 						if not found then
 							updateHeaderPlayer(nil)
-							s.CurrentOption = nil
-							if s.Callback then
-								runCallback(s.Callback, nil)
-							end
-							if isOpen then
-								closeDropdown()
-							end
+							if s.Callback then runCallback(s.Callback, nil) end
+							if isOpen then closeDropdown() end
 						end
 					end
-
 					buildItems()
 					selLbl.Text = selText()
-
 					if isOpen then
 						local expandH = BASE_H + math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H
 						DD.Size = UDim2.new(1, 0, 0, expandH)
 					end
 				end
-
-				addedConn = Players.PlayerAdded:Connect(function()
-					rebuildPlayerOptions()
-				end)
-				removingConn = Players.PlayerRemoving:Connect(function()
-					task.defer(rebuildPlayerOptions)
-				end)
-
-				-- Clean up connections when the dropdown element is removed from the hierarchy
-				DD.AncestryChanged:Connect(function(_, parent)
-					if parent == nil then
-						if addedConn then
-							addedConn:Disconnect()
-							addedConn = nil
-						end
-						if removingConn then
-							removingConn:Disconnect()
-							removingConn = nil
-						end
-						closeBackdrop()
-					end
-				end)
+				addedConn = Players.PlayerAdded:Connect(rebuildPlayerOptions)
+				removingConn = Players.PlayerRemoving:Connect(function() task.defer(rebuildPlayerOptions) end)
+				DD.AncestryChanged:Connect(function(_, p) if p == nil then if addedConn then addedConn:Disconnect() end if removingConn then removingConn:Disconnect() end end end)
 			end
 
-			-- Interact button sits over the header row (ZIndex 5, invisible)
 			local Interact = cloak(Instance.new("TextButton"))
 			Interact.Size = UDim2.new(1, 0, 0, BASE_H)
 			Interact.BackgroundTransparency = 1
@@ -2513,131 +2345,71 @@ function VaporLens:CreateWindow(cfg)
 			Interact.Parent = HeaderRow
 
 			Interact.MouseButton1Click:Connect(function()
-				if InputManager.ActiveSlider or (InputManager.DragState and InputManager.DragState.Active) then
-					return
-				end
+				if InputManager.ActiveSlider or (InputManager.DragState and InputManager.DragState.Active) then return end
 				isOpen = not isOpen
 				if isOpen then
 					local expandH = BASE_H + (math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H) + 8
 					qt(DD, { Size = UDim2.new(1, 0, 0, expandH) }, 0.32, Enum.EasingStyle.Quart)
 					syncDropdownChevron(true)
-
-					closeBackdrop()
-
-					outsideInputConn = UIS.InputBegan:Connect(function(inp, _gpe)
-						local t = inp.UserInputType
-						if t ~= Enum.UserInputType.MouseButton1
-							and t ~= Enum.UserInputType.Touch then
-							return
-						end
-
-						task.defer(function()
-							if not isOpen then return end
-							local ok, inDD = pcall(function()
-								local pos = inp.Position
-								local ap  = DD.AbsolutePosition
-								local as  = DD.AbsoluteSize
-								return pos.X >= ap.X and pos.X <= ap.X + as.X
-									and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+					outsideInputConn = trackConnection(UIS.InputBegan:Connect(function(inp)
+						if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+							task.defer(function()
+								if not isOpen then return end
+								local ok, inDD = pcall(function()
+									local pos = inp.Position
+									local ap = DD.AbsolutePosition
+									local as = DD.AbsoluteSize
+									return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+								end)
+								if not (ok and inDD) then closeDropdown() end
 							end)
-							if not (ok and inDD) then
-								closeDropdown()
-							end
-						end)
-					end)
-
-					DD.ZIndex = 20
-					HeaderRow.ZIndex = 21
-					Interact.ZIndex = 24
-					if itemContainer then
-						itemContainer.ZIndex = 21
-					end
+						end
+					end))
 				else
 					closeDropdown()
 				end
-				syncDropdownHover(false, false)
 			end)
 
-			-- Initial option state for normal mode
 			if not isPlayerMode then
 				local initialChosen = {}
-				for _, o in ipairs(options) do
-					if sel[o] then
-						table.insert(initialChosen, o)
-					end
-				end
+				for _, o in ipairs(options) do if sel[o] then table.insert(initialChosen, o) end end
 				s.CurrentOption = isMulti and initialChosen or initialChosen[1]
-				if s.Flag then
-					rememberFlag(s.Flag, s)
-				end
+				if s.Flag then rememberFlag(s.Flag, s) end
 			end
 
 			function s:Set(v)
-				if isPlayerMode then
-					if typeof(v) == "Instance" and v:IsA("Player") then
-						updateHeaderPlayer(v)
-					else
-						updateHeaderPlayer(nil)
-					end
-					s.CurrentOption = selectedPlayer
-				else
-					for k in pairs(sel) do
-						sel[k] = false
-					end
-					if type(v) == "table" then
-						for _, val in ipairs(v) do
-							sel[safeText(val, "")] = true
-						end
-					else
-						sel[safeText(v, "")] = true
-					end
+				if isPlayerMode then updateHeaderPlayer(typeof(v) == "Instance" and v:IsA("Player") and v or nil) else
+					for k in pairs(sel) do sel[k] = false end
+					if type(v) == "table" then for _, val in ipairs(v) do sel[safeText(val, "")] = true end else sel[safeText(v, "")] = true end
 					local chosen = {}
-					for _, o in ipairs(options) do
-						if sel[o] then
-							table.insert(chosen, o)
-						end
-					end
+					for _, o in ipairs(options) do if sel[o] then table.insert(chosen, o) end end
 					s.CurrentOption = isMulti and chosen or chosen[1]
-					for _, fn in pairs(optSyncs) do
-						fn()
-					end
+					for _, fn in pairs(optSyncs) do fn() end
 					selLbl.Text = selText()
 				end
-				if s.Flag then
-					rememberFlag(s.Flag, s)
-				end
+				if s.Flag then rememberFlag(s.Flag, s) end
 				closeDropdown()
 			end
 
 			function s:Refresh()
-				if not isPlayerMode then
-					return
-				end
+				if not isPlayerMode then return end
 				options = {}
-				for _, p in ipairs(Players:GetPlayers()) do
-					if showSelf or p ~= Players.LocalPlayer then
-						table.insert(options, p)
-					end
-				end
+				for _, p in ipairs(Players:GetPlayers()) do if showSelf or p ~= Players.LocalPlayer then table.insert(options, p) end end
 				buildItems()
 				selLbl.Text = selText()
 			end
 
-			function s:GetSelected()
-				return selectedPlayer
-			end
+			function s:GetSelected() return selectedPlayer end
 
 			return s
 		end
 
-		--  CreatePlayerDropdown: convenience wrapper that enables PlayerMode
 		function Tab:CreatePlayerDropdown(s)
 			s = asTable(s)
 			s.PlayerMode = true
 			return self:CreateDropdown(s)
 		end
 
-		--  CreateProgressBar
 		function Tab:CreateProgressBar(s)
 			s = asTable(s)
 			local maxV = safeNumber(s.Max, 100, 0.000001)
@@ -2647,8 +2419,6 @@ function VaporLens:CreateWindow(cfg)
 			local span = math.max(maxV, 1)
 
 			local Row, _ = baseRow(Page, ELEM_TALL)
-
-			-- ProgressBar name label: same layout as Slider (0.6 scale, top row). O(1).
 			local nameLbl = cloak(Instance.new("TextLabel"))
 			nameLbl.Size = UDim2.new(0.6, 0, 0, 22)
 			nameLbl.Position = UDim2.new(0, 0, 0, 12)
@@ -2689,9 +2459,7 @@ function VaporLens:CreateWindow(cfg)
 			corner(Fill, 2)
 
 			s.CurrentValue = cur
-			if s.Flag then
-				rememberFlag(s.Flag, s)
-			end
+			if s.Flag then rememberFlag(s.Flag, s) end
 
 			function s:Set(value)
 				cur = math.clamp(safeNumber(value, cur), 0, maxV)
@@ -2703,7 +2471,6 @@ function VaporLens:CreateWindow(cfg)
 			return s
 		end
 
-		--  CreateLabel
 		function Tab:CreateLabel(text, iconName, color)
 			color = safeColor(color, nil)
 			local Row = cloak(Instance.new("Frame"))
@@ -2714,14 +2481,10 @@ function VaporLens:CreateWindow(cfg)
 			corner(Row, 8)
 			stroke(Row, T.Border, 0.94, 1)
 			pad(Row, 16, 16, 0, 0)
-
 			local hasIco = iconName ~= nil and iconName ~= ""
 			local icoEl = icoLabel(Row, 15, color or T.Glow)
 			icoEl.Position = UDim2.new(0, 0, 0.5, -7)
-			if hasIco then
-				applyIcon(icoEl, iconName)
-			end
-
+			if hasIco then applyIcon(icoEl, iconName) end
 			local tx = hasIco and 22 or 0
 			local lbl = cloak(Instance.new("TextLabel"))
 			lbl.Size = UDim2.new(1, -tx, 1, 0)
@@ -2736,21 +2499,15 @@ function VaporLens:CreateWindow(cfg)
 			lbl.TextWrapped = true
 			lbl.TextTruncate = Enum.TextTruncate.AtEnd
 			lbl.Parent = Row
-
 			local LV = {}
 			function LV:Set(newText, newColor)
 				lbl.Text = newText ~= nil and safeText(newText, lbl.Text) or lbl.Text
 				newColor = safeColor(newColor, nil)
-				if newColor then
-					lbl.TextColor3 = newColor
-					icoEl.ImageColor3 = newColor
-				end
+				if newColor then lbl.TextColor3 = newColor icoEl.ImageColor3 = newColor end
 			end
-
 			return LV
 		end
 
-		--  CreateParagraph
 		function Tab:CreateParagraph(s)
 			s = asTable(s)
 			local Row = cloak(Instance.new("Frame"))
@@ -2761,7 +2518,6 @@ function VaporLens:CreateWindow(cfg)
 			corner(Row, 10)
 			stroke(Row, T.Border, 0.94, 1)
 			pad(Row, 16, 16, 10, 10)
-
 			local tLbl = cloak(Instance.new("TextLabel"))
 			tLbl.Size = UDim2.new(1, 0, 0, 18)
 			tLbl.BackgroundTransparency = 1
@@ -2771,7 +2527,6 @@ function VaporLens:CreateWindow(cfg)
 			tLbl.TextSize = 14
 			tLbl.TextXAlignment = Enum.TextXAlignment.Left
 			tLbl.Parent = Row
-
 			local cLbl = cloak(Instance.new("TextLabel"))
 			cLbl.Size = UDim2.new(1, 0, 0, 44)
 			cLbl.Position = UDim2.new(0, 0, 0, 24)
@@ -2784,44 +2539,29 @@ function VaporLens:CreateWindow(cfg)
 			cLbl.TextXAlignment = Enum.TextXAlignment.Left
 			cLbl.TextWrapped = true
 			cLbl.Parent = Row
-
 			local PV = {}
 			function PV:Set(ns)
 				ns = asTable(ns)
 				tLbl.Text = ns.Title ~= nil and safeText(ns.Title, tLbl.Text) or tLbl.Text
 				cLbl.Text = ns.Content ~= nil and safeText(ns.Content, cLbl.Text) or cLbl.Text
 			end
-
 			return PV
 		end
 
 		return Tab
-	end -- CreateTab
+	end
 
-	--  Window utilities
 	function Window:SelectTab(name)
 		local needle = string.lower(tostring(name or ""))
-		for id, displayName in pairs(_tabNames) do
-			if string.lower(displayName):find(needle, 1, true) then
-				activateTab(id)
-				return
-			end
-		end
+		for id, displayName in pairs(_tabNames) do if string.lower(displayName):find(needle, 1, true) then activateTab(id) return end end
 	end
 
 	function Window:SetToggleKey(key)
 		key = safeKeyCode(key, Enum.KeyCode.Unknown)
-		if key == nil or key == Enum.KeyCode.Unknown then
-			toggleKey = nil -- explicitly disable toggle
-			return
-		end
+		if key == nil or key == Enum.KeyCode.Unknown then toggleKey = nil return end
 		toggleKey = key
 	end
 
-	--  Window:CreateToggleKeybind(tabObj, cfg?)
-	--  Creates a Keybind element on the given tab wired to update the global UI visibility toggle key.
-	--  Accepts all standard CreateKeybind config. CurrentKeybind defaults to the active toggleKey.
-	--  O(1) key update via shared toggleKey upvalue; no extra InputManager registrations.
 	function Window:CreateToggleKeybind(tabObj, cfg)
 		cfg = asTable(cfg)
 		cfg.Name = cfg.Name or "Toggle UI Key"
@@ -2829,43 +2569,14 @@ function VaporLens:CreateWindow(cfg)
 		cfg.CallOnChange = true
 		local originalCallback = cfg.Callback
 		cfg.Callback = function(newKey)
-			toggleKey = newKey -- shared upvalue with ToggleHandler.GetKey
-			if originalCallback then
-				runCallback(originalCallback, newKey)
-			end
+			toggleKey = newKey
+			if originalCallback then runCallback(originalCallback, newKey) end
 		end
 		return tabObj:CreateKeybind(cfg)
 	end
 
-	--  Window:CreateFloatingButton(cfg?)
-	--
-	--  AUDIT (v1.3):
-	--  1. FIXED: Drag-triggers-click bug. Root cause: InputManager's global UIS.InputEnded
-	--     clears fabDragState.Active BEFORE FabBtn.InputEnded fires on some executors/platforms,
-	--     causing the `Active && !Dragged` tap check to fail unpredictably.
-	--     Fix: Track the specific InputObject instance (_activeInput) to pair began/ended events.
-	--     The local _wasDragged flag is independent of InputManager state.
-	--  2. FIXED: Drag bounds used fixed BTN_SZ for width clamping; now uses Fab.AbsoluteSize.X.
-	--  3. ADDED: cfg.DragEnabled, cfg.ClickCallback, cfg.DragThreshold, cfg.SnapToEdges,
-	--     cfg.PulseOnClick, cfg.ZIndex config params.
-	--  4. ADDED: :SetClickCallback, :SetDragEnabled, :SetDragThreshold, :SetSnapToEdges methods.
-	--
-	--  cfg.Icon           string    Lucide icon name or asset URI (default "eye")
-	--  cfg.Text           string    optional label next to icon (pill shape when set)
-	--  cfg.Size           number    button height in px (default 48, min 44 for touch)
-	--  cfg.Position       UDim2     initial position (default bottom-left)
-	--  cfg.Visible        boolean   initial visibility (default true)
-	--  cfg.Flag           string    optional flag key for VaporLens.Flags
-	--  cfg.DragEnabled    boolean   allow drag-to-reposition (default true)
-	--  cfg.ClickCallback  function  custom tap callback; overrides default UI toggle when set
-	--  cfg.DragThreshold  number    px movement to register drag (default 4, clamped 2-20)
-	--  cfg.SnapToEdges    boolean   snap to nearest screen edge on drag end (default false)
-	--  cfg.PulseOnClick   boolean   play visual pulse on tap (default true)
-	--  cfg.ZIndex         number    override ZIndex (default 10)
 	function Window:CreateFloatingButton(cfgBtn)
 		cfgBtn = asTable(cfgBtn)
-
-		-- Parameter validation. O(1).
 		local BTN_SZ = math.floor(safeNumber(cfgBtn.Size, 48, 44, 96))
 		local btnVisible = cfgBtn.Visible ~= false
 		local btnSessionId = sessionId
@@ -2878,7 +2589,6 @@ function VaporLens:CreateWindow(cfg)
 		local pulseOnClick = cfgBtn.PulseOnClick ~= false
 		local fabZIndex = math.floor(safeNumber(cfgBtn.ZIndex, 10, 1, 1000))
 
-		-- Pill geometry constants
 		local ICO_SZ = math.floor(BTN_SZ * 0.42)
 		local TEXT_PAD_L = 6
 		local TEXT_PAD_R = 14
@@ -2887,22 +2597,15 @@ function VaporLens:CreateWindow(cfg)
 		local function measurePillWidth(text)
 			text = safeText(text, "")
 			if not text or text == "" then return BTN_SZ end
-			local estW = math.ceil(#text * 7.2) -- GothamBold@13 ~7.2px/char
+			local estW = math.ceil(#text * 7.2)
 			return math.max(BTN_SZ + TEXT_PAD_L + estW + TEXT_PAD_R, BTN_SZ + 40)
-		end
-
-		local function getViewportSize()
-			local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
-			return (ok and vp) or Vector2.new(1920, 1080)
 		end
 
 		local fabWidth = measurePillWidth(btnText)
 
-		-- Container frame
 		local Fab = cloak(Instance.new("Frame"))
 		Fab.Size = UDim2.new(0, fabWidth, 0, BTN_SZ)
-		Fab.Position = (typeof(cfgBtn.Position) == "UDim2" and cfgBtn.Position)
-			or UDim2.new(0, 20, 1, -(BTN_SZ + 20))
+		Fab.Position = (typeof(cfgBtn.Position) == "UDim2" and cfgBtn.Position) or UDim2.new(0, 20, 1, -(BTN_SZ + 20))
 		Fab.BackgroundColor3 = T.Glass
 		Fab.BackgroundTransparency = T.GlassTransp
 		Fab.Visible = btnVisible
@@ -2947,32 +2650,20 @@ function VaporLens:CreateWindow(cfg)
 		FabBtn.ZIndex = fabZIndex + 1
 		FabBtn.Parent = Fab
 
-		-- INPUT STATE — fixes the drag-triggers-click bug.
-		-- Tracks the specific InputObject to reliably pair began/ended events.
-		-- _wasDragged is a local flag independent of InputManager.DragState.Active,
-		-- which can be cleared by the global UIS.InputEnded handler before this fires.
-		local _activeInput = nil  -- the InputObject that started the current interaction
+		local _activeInput = nil
 		local _wasDragged = false
-		local _dragStartPos = nil -- Fab absolute position at drag start (UDim2)
+		local _dragStartPos = nil
 
-		-- Drag state registered with InputManager for position updates. O(1) per frame.
 		local fabDragState = {}
 		fabDragState.Active = false
 		fabDragState.Start = nil
 		fabDragState.StartPos = nil
-		fabDragState.Alive = function()
-			return Fab.Parent ~= nil and not _destroyed
-		end
+		fabDragState.Alive = function() return Fab.Parent ~= nil and not _destroyed end
 		fabDragState.Update = function(pos)
-			if not _activeInput or not fabDragState.Start or not _dragStartPos then
-				return
-			end
+			if not _activeInput or not fabDragState.Start or not _dragStartPos then return end
 			local d = pos - fabDragState.Start
-			if d.Magnitude > dragThreshold then
-				_wasDragged = true
-			end
+			if d.Magnitude > dragThreshold then _wasDragged = true end
 			if not dragEnabled then return end
-			-- Clamp within screen bounds. O(1).
 			local curW = Fab.AbsoluteSize.X
 			local vpSize = getViewportSize()
 			local newX = math.clamp(_dragStartPos.X.Offset + d.X, 0, vpSize.X - curW)
@@ -2980,7 +2671,6 @@ function VaporLens:CreateWindow(cfg)
 			Fab.Position = UDim2.new(0, newX, 0, newY)
 		end
 
-		-- Snap to nearest horizontal screen edge. O(1).
 		local function snapToEdge()
 			if not snapToEdges then return end
 			local vpSize = getViewportSize()
@@ -2991,27 +2681,18 @@ function VaporLens:CreateWindow(cfg)
 			qt(Fab, { Position = UDim2.new(0, targetX, Fab.Position.Y.Scale, Fab.Position.Y.Offset) }, 0.28, Enum.EasingStyle.Quart)
 		end
 
-		-- Visual pulse feedback. O(1).
 		local function doPulse()
 			if not pulseOnClick then return end
 			qt(fabStroke, { Transparency = 0 }, 0.08)
 			qt(FabGlow, { BackgroundTransparency = 0.75 }, 0.08)
-			task.delay(0.15, function()
-				if Fab.Parent then
-					qt(fabStroke, { Transparency = 0.45 }, 0.22)
-					qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.22)
-				end
-			end)
+			task.delay(0.15, function() if Fab.Parent then qt(fabStroke, { Transparency = 0.45 }, 0.22) qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.22) end end)
 		end
 
-		-- InputBegan: start tracking a specific InputObject. O(1).
 		FabBtn.InputBegan:Connect(function(inp)
 			local t = inp.UserInputType
 			if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
-			if _activeInput then return end -- already tracking an interaction
-			-- Yield to main window drag if active
+			if _activeInput then return end
 			if InputManager.DragState and InputManager.DragState.Active then return end
-
 			_activeInput = inp
 			_wasDragged = false
 			fabDragState.Active = true
@@ -3021,56 +2702,25 @@ function VaporLens:CreateWindow(cfg)
 			InputManager.DragState = fabDragState
 		end)
 
-		-- InputEnded: only process the EXACT InputObject that began the interaction.
-		-- This is the core fix: we no longer rely on fabDragState.Active (which can be
-		-- cleared by InputManager's global UIS.InputEnded before this handler fires). O(1).
 		FabBtn.InputEnded:Connect(function(inp)
-			if inp ~= _activeInput then return end -- ignore unrelated inputs
+			if inp ~= _activeInput then return end
 			local wasDragged = _wasDragged
-
-			-- Reset interaction state before firing callbacks (prevents re-entrancy issues)
 			_activeInput = nil
 			_wasDragged = false
 			fabDragState.Active = false
-			if InputManager.DragState == fabDragState then
-				InputManager.DragState = nil
-			end
-
-			if wasDragged then
-				-- Drag completed — optionally snap to edge
-				snapToEdge()
-			else
-				-- Tap detected — fire click action. O(1).
+			if InputManager.DragState == fabDragState then InputManager.DragState = nil end
+			if wasDragged then snapToEdge() else
 				doPulse()
-				if clickCallback then
-					runCallback(clickCallback)
-				else
-					-- Default: toggle main UI visibility
+				if clickCallback then runCallback(clickCallback) else
 					_visible = not _visible
-					Main.Visible = _visible
-					if _visible then
-						VaporLens:Notify({
-							Title = cfg.Title or "Vapor Lens",
-							Content = "Interface restored.",
-							Icon = "monitor",
-							Duration = 3,
-						})
-					end
+					if Window and Window.SetVisible then Window:SetVisible(_visible) else Main.Visible = _visible Main.Active = _visible end
 				end
 			end
 		end)
 
-		-- Hover (desktop only)
-		FabBtn.MouseEnter:Connect(function()
-			qt(FabGlow, { BackgroundTransparency = 0.82 }, 0.18)
-			qt(fabStroke, { Transparency = 0.20 }, 0.18)
-		end)
-		FabBtn.MouseLeave:Connect(function()
-			qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.18)
-			qt(fabStroke, { Transparency = 0.45 }, 0.18)
-		end)
+		FabBtn.MouseEnter:Connect(function() qt(FabGlow, { BackgroundTransparency = 0.82 }, 0.18) qt(fabStroke, { Transparency = 0.20 }, 0.18) end)
+		FabBtn.MouseLeave:Connect(function() qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.18) qt(fabStroke, { Transparency = 0.45 }, 0.18) end)
 
-		-- Entrance animation
 		Fab.BackgroundTransparency = 1
 		FabGlow.BackgroundTransparency = 1
 		fabStroke.Transparency = 1
@@ -3082,37 +2732,14 @@ function VaporLens:CreateWindow(cfg)
 			qt(FabGlow, { BackgroundTransparency = 0.92 }, 0.36, Enum.EasingStyle.Quart)
 			qt(fabStroke, { Transparency = 0.45 }, 0.36, Enum.EasingStyle.Quart)
 			qt(fabIco, { ImageTransparency = 0 }, 0.36, Enum.EasingStyle.Quart)
-			if hasText then
-				qt(fabLbl, { TextTransparency = 0 }, 0.36, Enum.EasingStyle.Quart)
-			end
+			if hasText then qt(fabLbl, { TextTransparency = 0 }, 0.36, Enum.EasingStyle.Quart) end
 		end)
 
-		-- Cleanup on destroy: release drag state if mid-interaction
-		Fab.AncestryChanged:Connect(function(_, parent)
-			if parent == nil then
-				_activeInput = nil
-				_wasDragged = false
-				if InputManager.DragState == fabDragState then
-					InputManager.DragState = nil
-				end
-			end
-		end)
+		Fab.AncestryChanged:Connect(function(_, parent) if parent == nil then _activeInput = nil _wasDragged = false if InputManager.DragState == fabDragState then InputManager.DragState = nil end end end)
 
-		-- Config object. O(1) all methods.
 		local fabConfig = { CurrentValue = btnVisible, Instance = Fab }
-
-		function fabConfig:Set(v)
-			if type(v) == "boolean" then
-				btnVisible = v
-				fabConfig.CurrentValue = v
-				Fab.Visible = v
-			end
-		end
-
-		function fabConfig:SetIcon(icon)
-			if icon and Fab.Parent then applyIcon(fabIco, icon) end
-		end
-
+		function fabConfig:Set(v) if type(v) == "boolean" then btnVisible = v fabConfig.CurrentValue = v Fab.Visible = v end end
+		function fabConfig:SetIcon(icon) if icon and Fab.Parent then applyIcon(fabIco, icon) end end
 		function fabConfig:SetText(text)
 			if not Fab.Parent then return end
 			local nextText = safeText(text, "")
@@ -3123,49 +2750,23 @@ function VaporLens:CreateWindow(cfg)
 			qt(Fab, { Size = UDim2.new(0, measurePillWidth(nextText), 0, BTN_SZ) }, 0.28, Enum.EasingStyle.Quart)
 			if newHasText then qt(fabLbl, { TextTransparency = 0 }, 0.28, Enum.EasingStyle.Quart) end
 		end
-
-		function fabConfig:SetPosition(pos)
-			if typeof(pos) == "UDim2" and Fab.Parent then Fab.Position = pos end
-		end
-
-		function fabConfig:SetClickCallback(cb)
-			clickCallback = type(cb) == "function" and cb or nil
-		end
-
-		function fabConfig:SetDragEnabled(v)
-			dragEnabled = v == true
-		end
-
-		function fabConfig:SetDragThreshold(px)
-			dragThreshold = math.clamp(type(px) == "number" and px or 4, 2, 20)
-		end
-
-		function fabConfig:SetSnapToEdges(v)
-			snapToEdges = v == true
-		end
-
+		function fabConfig:SetPosition(pos) if typeof(pos) == "UDim2" and Fab.Parent then Fab.Position = pos end end
+		function fabConfig:SetClickCallback(cb) clickCallback = type(cb) == "function" and cb or nil end
+		function fabConfig:SetDragEnabled(v) dragEnabled = v == true end
+		function fabConfig:SetDragThreshold(px) dragThreshold = math.clamp(type(px) == "number" and px or 4, 2, 20) end
+		function fabConfig:SetSnapToEdges(v) snapToEdges = v == true end
 		rememberFlag(cfgBtn.Flag, fabConfig)
-
 		return fabConfig
 	end
 
-	function Window:Destroy()
-		VaporLens:Destroy()
-	end
+	function Window:Destroy() VaporLens:Destroy() end
 
-	task.delay(0.7, function()
-		if _destroyed or sessionId ~= _sessionId or not (_gui and _gui.Parent) then
-			return
-		end
-		VaporLens:Notify({
-			Title = cfg.Title or "Vapor Lens",
-			Content = "Interface initialized.",
-			Icon = "check-circle",
-			Duration = 3,
-		})
+	task.delay(0.25, function()
+		if _destroyed or sessionId ~= _sessionId or not (_gui and _gui.Parent) then return end
+		VaporLens:Notify({ Title = cfg.Title or "Vapor Lens", Content = "Interface initialized.", Icon = "check-circle", Duration = 3 })
 	end)
 
 	return Window
-end -- CreateWindow
+end
 
 return VaporLens
