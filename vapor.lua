@@ -1212,15 +1212,15 @@ function VaporLens:CreateWindow(cfg)
 	applyIcon(IcoImg, cfg.Icon or "droplets")
 
 	local ColBtn, ColIcon = createIconButton(Header, {
-		Size = UDim2.new(0, 32, 0, 32),
-		Position = UDim2.new(1, -32, 0.5, -16),
+		Size = UDim2.new(0, 42, 0, 42), -- HitBox ampliada para Mobile (antes 32x32)
+		Position = UDim2.new(1, -42, 0.5, -21),
 		Icon = cfg.CollapseIcon or DEFAULT_COLLAPSE_ICON,
 		IconSize = 16,
 		Color = T.Glow,
 	})
 
 	local TxtBlk = cloak(Instance.new("Frame"))
-	TxtBlk.Size = UDim2.new(1, -(32 + 15 + 32 + 10), 1, 0)
+	TxtBlk.Size = UDim2.new(1, -(32 + 15 + 42 + 10), 1, 0)
 	TxtBlk.Position = UDim2.new(0, 32 + 15, 0, 0)
 	TxtBlk.BackgroundTransparency = 1
 	TxtBlk.Parent = Header
@@ -1419,6 +1419,21 @@ function VaporLens:CreateWindow(cfg)
 			InputManager.DragState = dragState
 		end
 	end))
+
+	--  COLLAPSE
+	local _collapsed = false
+	ColBtn.Activated:Connect(function()
+		_collapsed = not _collapsed
+		if _collapsed then
+			Main:SetAttribute("ExpandedY", Main.Size.Y.Offset)
+			qt(Main, { Size = UDim2.new(0, WIN_W, 0, HDR_H) }, 0.5, Enum.EasingStyle.Exponential)
+			qt(ColIcon, { Rotation = -90 }, 0.4, Enum.EasingStyle.Back)
+		else
+			local tY = Main:GetAttribute("ExpandedY") or WIN_H
+			qt(Main, { Size = UDim2.new(0, WIN_W, 0, tY) }, 0.5, Enum.EasingStyle.Exponential)
+			qt(ColIcon, { Rotation = 0 }, 0.4, Enum.EasingStyle.Back)
+		end
+	end)
 
 	--  TOGGLE KEY
 	InputManager.ToggleHandler = {
