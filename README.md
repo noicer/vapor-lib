@@ -1,51 +1,89 @@
-# Vapor
+# VaporLens
 
-Vapor is a vibecoded Roblox UI library lol
+VaporLens is a vibesloppy-coded Roblox UI library optimized for performance and accessibility.
 
 ## Highlights
 
-- Support for Lucide icons, Roblox assets, and external image sources
-- Fixed dropdown, input, clipping, and connection cleanup issues
+- **Mobile Adaptive**: Auto-clamping window size based on Viewport and native touch feedback.
+- **Performance**: Native `UIListLayout` integration and aggressive tween/connection cleanup.
+- **Lucide Icons**: Full Lucide icon support.
+- **Anti-Leak**: Global registry protection ensures zero memory leakage on re-execution.
 
 ## Loadstring
 
-Copy this exact line:
+Copy this line to get started:
 
 ```lua
-local Vapor = loadstring(game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua"))()
+local VaporLens = loadstring(game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua"))()
 ```
+
+## Complete Usage Example (v1.3.1)
 
 ```lua
 local VaporLens = loadstring(game:HttpGet("https://raw.githubusercontent.com/noicer/vapor-lib/main/vapor.lua"))()
 
--- Theme Configuration (Optional)
-VaporLens:SetTheme({
-    Glow = Color3.fromRGB(0, 180, 255),
+-- 1. Configuration (Optional)
+-- Full theme keys reference
+--[[
+VaporLens:SetTheme({   
+    -- Window
+    Glass = Color3.fromRGB(15, 15, 17),        -- Window background tint
+    GlassTransp = 0.25,                        -- Window background transparency
+    Border = Color3.fromRGB(45, 45, 50),       -- Window + element border color
+    BorderTransp = 0.50,                       -- Window border transparency
+    
+    -- Accent
+    Glow = Color3.fromRGB(0, 180, 255),        -- Accent / active color
+    
+    -- Text
+    Primary = Color3.fromRGB(240, 240, 240),   -- Primary text color
+    Secondary = Color3.fromRGB(160, 160, 165), -- Secondary text color
+    SecTransp = 0,                             -- Secondary text transparency
+    
+    -- Elements
+    ElemBg = Color3.fromRGB(30, 30, 35),       -- Element row background tint
+    ElemTransp = 0.40,                         -- Element row transparency
+    ElemHoverTransp = 0.20,                    -- Element hover transparency
+    ElemBdrTransp = 0.70,                      -- Element border transparency
+    
+    -- Controls
+    ToggleOff = Color3.fromRGB(40, 40, 45),    -- Toggle track color when off
+    SliderTrack = Color3.fromRGB(20, 20, 25),  -- Slider unfilled track color
+    InputBg = Color3.fromRGB(10, 10, 12),      -- Input field background
+    
+    -- Section Label
+    SectionTransp = 0.30,                      -- Section label transparency
+    
+    -- Notification
+    NotifBg = Color3.fromRGB(5, 5, 8),         -- Notification background
 })
+]]
 
--- Window Creation
+-- 2. Window Creation (Adaptive & Mobile Ready)
 local Window = VaporLens:CreateWindow({
     Title = "VaporLens",
-    Subtitle = "Neutral Interface — v1.1",
-    Icon = "layers",
+    Subtitle = "User Interface — v1.3.1",
+    Icon = "layers", -- Lucide icon name
     ToggleKey = Enum.KeyCode.RightControl,
-    Width = 480,
-    Height = 380,
+    Width = 500,
+    Height = 400,
 })
 
--- Tabs Creation
-local TabMain = Window:CreateTab({ Title = "Elements", Icon = "component" })
-local TabSettings = Window:CreateTab({ Title = "Advanced", Icon = "settings" })
+-- 3. Tabs Creation
+local TabMain = Window:CreateTab("Elements", "component")
+local TabSelectors = Window:CreateTab("Selectors", "list")
+local TabPlayers = Window:CreateTab("Players", "users")
+local TabMisc = Window:CreateTab("Misc", "settings")
 
 -- ────────────────────────────────────────────────────────────
--- MAIN TAB ELEMENTS
+-- MAIN ELEMENTS
 -- ────────────────────────────────────────────────────────────
 
-TabMain:CreateSection("Controls")
+TabMain:CreateSection("Basic Controls")
 
 -- Toggle
 local Toggle = TabMain:CreateToggle({
-    Name = "Toggle",
+    Name = "Active Feature",
     CurrentValue = false,
     Flag = "Toggle1",
     Callback = function(Value)
@@ -55,79 +93,96 @@ local Toggle = TabMain:CreateToggle({
 
 -- Slider
 local Slider = TabMain:CreateSlider({
-    Name = "Slider",
-    Range = {0, 100},
-    Increment = 1,
-    Suffix = "%",
-    CurrentValue = 50,
+    Name = "Precision Slider",
+    Range = {0, 10},
+    Increment = 0.1,
+    Suffix = " units",
+    CurrentValue = 5,
     Flag = "Slider1",
     Callback = function(Value)
-        print("Slider changed to:", Value)
+        print("Slider value:", Value)
     end,
 })
 
 -- Button
 TabMain:CreateButton({
-    Name = "Button",
-    Icon = "check-circle",
+    Name = "Execute Notification",
+    Icon = "info",
     Callback = function()
         VaporLens:Notify({
             Title = "Notification",
-            Content = "The button was successfully pressed!",
-            Icon = "info",
+            Content = "Action performed successfully!",
+            Icon = "check-circle",
             Duration = 3,
         })
     end,
 })
 
-TabMain:CreateSection("Selectors")
+-- ────────────────────────────────────────────────────────────
+-- SELECTORS TAB
+-- ────────────────────────────────────────────────────────────
 
--- Dropdown
-local Dropdown = TabMain:CreateDropdown({
-    Name = "Dropdown",
-    Options = {"Option 1", "Option 2", "Option 3", "Option 4"},
-    CurrentOption = {"Option 1"},
-    MultipleOptions = false,
-    Flag = "Dropdown1",
+TabSelectors:CreateSection("Dropdown Types")
+
+-- Single-Selection Dropdown
+TabSelectors:CreateDropdown({
+    Name = "Mode Selector",
+    Options = {"Legit", "Blatant", "Rage"},
+    CurrentOption = "Legit",
+    Flag = "DropdownSingle",
     Callback = function(Option)
-        print("Dropdown selected:", Option)
+        print("Mode selected:", Option)
     end,
 })
 
--- Player Dropdown
-local PlayerDropdown = TabMain:CreatePlayerDropdown({
-    Name = "Player Dropdown",
+-- Multi-Selection Dropdown
+TabSelectors:CreateDropdown({
+    Name = "ESP Filters",
+    Options = {"Boxes", "Tracers", "Names", "Health"},
+    MultipleOptions = true,
+    CurrentOption = {"Boxes", "Names"},
+    Flag = "DropdownMulti",
+    Callback = function(SelectedTable)
+        print("Active filters:", table.concat(SelectedTable, ", "))
+    end,
+})
+
+-- Player Dropdown (Auto-updates with server churn)
+TabPlayers:CreatePlayerDropdown({
+    Name = "Target Player",
     ShowSelf = true,
-    AvatarScale = 1.0,
-    DisplayNameScale = 1.0,
-    UsernameScale = 1.0,
     Callback = function(Player)
         if Player then
-            print("Selected player:", Player.DisplayName)
+            print("Targeting:", Player.DisplayName)
         end
     end,
 })
 
 -- ────────────────────────────────────────────────────────────
--- SETTINGS TAB ELEMENTS
+-- UTILITY & FEEDBACK
 -- ────────────────────────────────────────────────────────────
 
-TabSettings:CreateSection("Input & Text")
+-- Progress Bar
+local ProgressBar = TabMisc:CreateProgressBar({
+    Name = "Download Status",
+    Value = 45,
+    Max = 100,
+    Suffix = "%",
+    Color = Color3.fromRGB(0, 255, 150)
+})
 
--- Input
-local Input = TabSettings:CreateInput({
-    Name = "Input",
-    PlaceholderText = "Type something...",
-    MaxLength = 20,
-    RemoveTextAfterFocusLost = false,
-    Callback = function(Text)
-        print("Input text:", Text)
-    end,
+-- Label
+local Label = TabMisc:CreateLabel("Critical system warning!", "alert-triangle", Color3.fromRGB(255, 80, 80))
+
+-- Paragraph
+TabMisc:CreateParagraph({
+    Title = "Developer Note",
+    Content = "VaporLens automatically handles GUI protection and input blocking when invisible."
 })
 
 -- Keybind
-local Keybind = TabSettings:CreateKeybind({
-    Name = "Keybind",
+TabMisc:CreateKeybind({
+    Name = "Self-Destruct",
     CurrentKeybind = Enum.KeyCode.F,
     HoldToInteract = false,
     Flag = "Keybind1",
@@ -136,46 +191,38 @@ local Keybind = TabSettings:CreateKeybind({
     end,
 })
 
-TabSettings:CreateSection("Feedback")
+-- ────────────────────────────────────────────────────────────
+-- INTERFACE CONTROLS & METHODS
+-- ────────────────────────────────────────────────────────────
 
--- Progress Bar
-local ProgressBar = TabSettings:CreateProgressBar({
-    Name = "Progress Bar",
-    Value = 75,
-    Max = 100,
-    Suffix = "%",
-    Color = Color3.fromRGB(0, 255, 150),
-    Flag = "Progress1",
+-- Floating Action Button (FAB)
+local FAB = Window:CreateFloatingButton({
+    Icon = "ghost",
+    Text = "Vapor Menu",
+    SnapToEdges = true -- Mobile-friendly snapping
 })
 
--- Label
-local Label = TabSettings:CreateLabel("Label (Simple Text)", "info", Color3.fromRGB(200, 200, 200))
-
--- Paragraph
-TabSettings:CreateParagraph({
-    Title = "Paragraph",
-    Content = "This is a paragraph element useful for long descriptions or usage instructions within your interface.",
+-- Set a toggle keybind within a tab
+Window:CreateToggleKeybind(TabMisc, {
+    Name = "Toggle UI Key",
+    CurrentKeybind = Enum.KeyCode.RightControl
 })
 
--- 5. API Manipulation Example
+-- API Manipulation Example
 task.delay(5, function()
+    Slider:Set(8.5)
+    Toggle:Set(true)
     ProgressBar:Set(100)
-    Label:Set("Label Updated via API", Color3.fromRGB(0, 180, 255))
+    Label:Set("System Stabilized", Color3.fromRGB(0, 255, 120))
 end)
 ```
 
 ## Attribution
 
-- Vapor backend/public release work by noicer
+- Backend/Release by noicer
 - Lucide integration by Rayfield
 - Icons provided by Lucide
-
-See [NOTICE](./NOTICE) for attribution details.
 
 ## License
 
 This project is licensed under Apache-2.0. See [LICENSE](./LICENSE).
-
-## Notes
-
-- This repository currently ships the release file as [`vapor.lua`](./vapor.lua)
