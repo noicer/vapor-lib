@@ -277,7 +277,9 @@ local function qt(obj, goal, dur, style, dir)
 	for prop, _ in pairs(goal) do
 		local key = tostring(obj:GetDebugId()) .. "_" .. prop
 		if _activeTweens[key] then
-			pcall(function() _activeTweens[key]:Cancel() end)
+			local oldTween = _activeTweens[key]
+			pcall(function() oldTween:Cancel() end)
+			pcall(function() oldTween:Destroy() end)
 			_activeTweens[key] = nil
 		end
 	end
@@ -302,6 +304,7 @@ local function qt(obj, goal, dur, style, dir)
 					_activeTweens[key] = nil
 				end
 			end
+			pcall(function() tween:Destroy() end)
 		end)
 
 		return tween
@@ -626,6 +629,12 @@ local _notifStack = {}
 local _destroyed = false
 local _sessionId = 0
 local _trackedConnections = {}
+local _currentWindow = nil
+local _pagesRef = {}
+local _navBtnsRef = {}
+local _navUnderlinesRef = {}
+local _mainWindowRefs = {}
+local _activePageConns = {}
 
 local function trackConnection(conn)
 	if conn then
@@ -680,6 +689,8 @@ function VaporLens:SetTheme(custom)
 		warn("VaporLens:SetTheme() expects a table")
 		return
 	end
+	
+	-- Validate and apply to T
 	for k, v in pairs(custom) do
 		if T[k] ~= nil then
 			local currentType = typeof(T[k])
@@ -694,6 +705,191 @@ function VaporLens:SetTheme(custom)
 			end
 		else
 			warn("VaporLens:SetTheme() | Unknown key: " .. tostring(k))
+		end
+	end
+
+	if _currentWindow then
+		_currentWindow.PendingTheme = custom
+	end
+
+	if _destroyed or not (_gui and _gui.Parent) then
+		return
+	end
+
+	local mainRefs = _mainWindowRefs
+	if mainRefs.Main then mainRefs.Main.BackgroundColor3 = T.Glass mainRefs.Main.BackgroundTransparency = T.GlassTransp end
+	if mainRefs.MainStroke then mainRefs.MainStroke.Color = T.Border mainRefs.MainStroke.Transparency = T.BorderTransp end
+	if mainRefs.GlassBase then mainRefs.GlassBase.BackgroundColor3 = Color3.fromRGB(17, 0, 28) end -- Keep base color
+	if mainRefs.InnerGlassStroke then mainRefs.InnerGlassStroke.Color = T.Glow end
+
+	if mainRefs.TitleLbl then mainRefs.TitleLbl.TextColor3 = T.Primary end
+	if mainRefs.SubLbl then mainRefs.SubLbl.TextColor3 = T.Secondary mainRefs.SubLbl.TextTransparency = T.SecTransp end
+	if mainRefs.IcoBox then mainRefs.IcoBox.BackgroundColor3 = T.Glow mainRefs.IcoBox.BackgroundTransparency = 0.50 end
+	if mainRefs.icoGlow then mainRefs.icoGlow.Color = T.Glow mainRefs.icoGlow.Transparency = 0.6 end
+	if mainRefs.IcoImg then mainRefs.IcoImg.ImageColor3 = Color3.new(1, 1, 1) end
+	if mainRefs.ColIcon then mainRefs.ColIcon.ImageColor3 = T.Glow end
+
+	for _, btn in pairs(_navBtnsRef) do
+		if btn.TextColor3 ~= T.Secondary then -- Only active tab is Primary
+			btn.TextColor3 = T.Primary
+		else
+			btn.TextColor3 = T.Secondary
+			btn.TextTransparency = T.SecTransp
+		end
+	end
+	for _, ul in pairs(_navUnderlinesRef) do
+		ul.BackgroundColor3 = T.Glow
+	end
+
+	if mainRefs.GlobalScrollThumb then mainRefs.GlobalScrollThumb.BackgroundColor3 = T.Glow end
+
+	for _, page in pairs(_pagesRef) do
+		local desc = page:GetDescendants()
+		for _, inst in ipairs(desc) do
+			if inst:IsA("Frame") then
+				if inst.Parent == page and inst:FindFirstChildWhichIsA("UIStroke") and inst:FindFirstChildWhichIsA("UIPadding") then
+					qt(inst, { BackgroundColor3 = T.ElemBg }, 0.28, Enum.EasingStyle.Quart)
+				elseif inst.Size.Y.Offset == 4 and inst.Parent:IsA("Frame") then -- SliderTrack
+					inst.BackgroundColor3 = T.SliderTrack
+				elseif inst.Parent and inst.Parent.Size.Y.Offset == 4 and inst.Parent.Parent:IsA("Frame") then -- SliderFill
+					inst.BackgroundColor3 = T.Glow
+				elseif inst.Size == UDim2.new(0, 14, 0, 14) and inst.BackgroundColor3 == Color3.new(1,1,1) then -- Thumb
+					-- Thumb is white, do nothing
+				elseif inst:FindFirstChildWhichIsA("TextBox") then -- Input container
+					inst.BackgroundColor3 = T.InputBg
+				elseif inst.Parent and inst.Parent.Parent == _gui then -- Floating button
+					qt(inst, { BackgroundColor3 = T.Glass }, 0.28, Enum.EasingStyle.Quart)
+				end
+			elseif inst:IsA("TextLabel") then
+				if inst.Font == Enum.Font.GothamBold then
+					if inst.TextSize == 14 then
+						inst.TextColor3 = T.Primary
+					elseif inst.TextSize == 12 and inst.TextColor3 ~= T.Secondary and inst.Text ~= "●" then
+						inst.TextColor3 = T.Glow
+					elseif inst.TextSize == 10 then
+						inst.TextColor3 = T.Secondary
+						inst.TextTransparency = T.SectionTransp
+					elseif inst.Text == "●" then
+						inst.TextColor3 = T.Glow
+					end
+				elseif inst.Font == Enum.Font.GothamMedium and inst.TextSize == 12 then
+					inst.TextColor3 = T.Secondary
+					inst.TextTransparency = T.SecTransp
+				end
+			elseif inst:IsA("TextButton") then
+				if inst.Text == "Run" or (inst.Size.Y.Offset == 26 and (inst.Size.X.Offset == 72 or inst.Size.X.Offset == 88)) then
+					qt(inst, { BackgroundColor3 = T.Glow }, 0.28, Enum.EasingStyle.Quart)
+					inst.TextColor3 = T.Glow
+				elseif inst.Size == UDim2.new(0, 36, 0, 18) then
+					if inst.BackgroundColor3 ~= T.Glow then -- Was Off
+						inst.BackgroundColor3 = T.ToggleOff
+					else
+						inst.BackgroundColor3 = T.Glow
+					end
+				elseif inst.Size == UDim2.new(0, 96, 0, 26) then -- Keybind button
+					inst.BackgroundColor3 = T.ToggleOff
+					if inst.Text ~= "[ ... ]" then
+						inst.TextColor3 = T.Glow
+					else
+						inst.TextColor3 = T.Secondary
+					end
+				end
+			elseif inst:IsA("TextBox") then
+				inst.TextColor3 = T.Primary
+			elseif inst:IsA("ScrollingFrame") then
+				if inst.ScrollBarImageColor3 ~= Color3.new(0,0,0) then
+					inst.ScrollBarImageColor3 = T.Glow
+				end
+			elseif inst:IsA("UIStroke") then
+				if inst.Parent:IsA("Frame") and inst.Parent.Parent == page then
+					inst.Color = T.Border
+				elseif inst.Parent:IsA("Frame") and inst.Parent.Parent == _gui then
+					inst.Color = T.Glow
+				elseif inst.Parent:IsA("TextButton") and inst.Parent.Size.Y.Offset == 26 then
+					inst.Color = T.Glow
+				end
+			elseif inst:IsA("ImageLabel") then
+				if inst.Size == UDim2.new(0, 15, 0, 15) then -- Label icon
+					inst.ImageColor3 = T.Glow
+				elseif inst.Size == UDim2.new(0, 16, 0, 16) and inst.Parent:IsA("Frame") then -- Dropdown Chevron
+					inst.ImageColor3 = T.Glow
+				end
+			end
+		end
+	end
+
+	if _currentWindow then
+		for _, fab in ipairs(_currentWindow._floatingButtons or {}) do
+			local inst = fab.Instance
+			if inst and inst.Parent then
+				qt(inst, { BackgroundColor3 = T.Glass }, 0.28, Enum.EasingStyle.Quart)
+				local str = inst:FindFirstChildWhichIsA("UIStroke")
+				if str then str.Color = T.Glow end
+				local glow = inst:FindFirstChildWhichIsA("Frame")
+				if glow then glow.BackgroundColor3 = T.Glow end
+				local lbl = inst:FindFirstChildWhichIsA("TextLabel")
+				if lbl then lbl.TextColor3 = T.Primary end
+				local ico = inst:FindFirstChildWhichIsA("ImageLabel")
+				if ico then ico.ImageColor3 = T.Glow end
+			end
+		end
+
+		for _, dd in ipairs(_currentWindow._dropdowns or {}) do
+			if dd.shell and dd.shell.Parent then
+				qt(dd.shell, { BackgroundColor3 = T.ElemBg }, 0.28, Enum.EasingStyle.Quart)
+			end
+			if dd.shellStroke then dd.shellStroke.Color = T.Border end
+			if dd.nameLbl then dd.nameLbl.TextColor3 = T.Primary end
+			if dd.selLbl then dd.selLbl.TextColor3 = T.Glow end
+			if dd.chev then dd.chev.ImageColor3 = T.Glow end
+			if dd.itemContainer then
+				for _, ibtn in ipairs(dd.itemContainer:GetChildren()) do
+					if ibtn:IsA("TextButton") then
+						local isSelected = false
+						for _, child in ipairs(ibtn:GetChildren()) do
+							if child:IsA("TextLabel") and child.Size.X.Offset == 20 and child.Text == "●" then
+								isSelected = true
+								break
+							end
+						end
+						
+						qt(ibtn, { BackgroundColor3 = isSelected and T.Glow or T.ElemBg }, 0.28, Enum.EasingStyle.Quart)
+						for _, child in ipairs(ibtn:GetChildren()) do
+							if child:IsA("TextLabel") then
+								if child.Size.X.Offset == 20 then
+									child.TextColor3 = T.Glow
+								else
+									qt(child, { TextColor3 = isSelected and T.Glow or T.Primary }, 0.28, Enum.EasingStyle.Quart)
+								end
+							end
+						end
+					end
+				end
+				if dd.itemContainer:IsA("ScrollingFrame") then
+					dd.itemContainer.ScrollBarImageColor3 = T.Glow
+				end
+			end
+		end
+	end
+
+	for _, notif in ipairs(_notifStack) do
+		local frame = notif.Frame
+		if frame and frame.Parent then
+			qt(frame, { BackgroundColor3 = T.NotifBg }, 0.28, Enum.EasingStyle.Quart)
+			local str = frame:FindFirstChildWhichIsA("UIStroke")
+			if str then str.Color = T.Glow end
+			local bar = frame:FindFirstChildWhichIsA("Frame")
+			if bar then bar.BackgroundColor3 = T.Glow end
+			local ico = frame:FindFirstChildWhichIsA("ImageLabel")
+			if ico then ico.ImageColor3 = T.Glow end
+			local tit = frame:FindFirstChildWhichIsA("TextLabel")
+			if tit then tit.TextColor3 = T.Primary end
+			-- Note: SubLbl is identified by TextSize 11
+			for _, lbl in ipairs(frame:GetChildren()) do
+				if lbl:IsA("TextLabel") and lbl.TextSize == 11 then
+					lbl.TextColor3 = T.Secondary
+				end
+			end
 		end
 	end
 end
@@ -1043,6 +1239,7 @@ function VaporLens:Destroy()
 	_destroyed = true
 	InputManager:Destroy()
 	disconnectTrackedConnections()
+	
 	for _, notif in ipairs(_notifStack) do
 		if notif then
 			notif.Cancelled = true
@@ -1053,6 +1250,35 @@ function VaporLens:Destroy()
 		end
 	end
 	_notifStack = {}
+	
+	if _notifContainer and _notifContainer.Parent then
+		_notifContainer:Destroy()
+	end
+	_notifContainer = nil
+
+	for key, tween in pairs(_activeTweens) do
+		pcall(function()
+			tween:Cancel()
+			tween:Destroy()
+		end)
+	end
+	_activeTweens = {}
+
+	for _, conn in ipairs(_activePageConns) do
+		safeDisconnect(conn)
+	end
+	_activePageConns = {}
+
+	if _currentWindow then
+		_currentWindow._dropdowns = {}
+		_currentWindow._floatingButtons = {}
+	end
+	_currentWindow = nil
+	_pagesRef = {}
+	_navBtnsRef = {}
+	_navUnderlinesRef = {}
+	_mainWindowRefs = {}
+
 	if _gui and _gui.Parent then
 		_gui:Destroy()
 	end
@@ -1116,7 +1342,7 @@ function VaporLens:CreateWindow(cfg)
 	Main.Parent = sg
 	captureInput(Main)
 	corner(Main, 24)
-	stroke(Main, T.Border, T.BorderTransp, 1)
+	local MainStroke = stroke(Main, T.Border, T.BorderTransp, 1)
 
 	local GlassBase = cloak(Instance.new("Frame"))
 	GlassBase.Size = UDim2.new(1, 0, 1, 0)
@@ -1303,7 +1529,20 @@ function VaporLens:CreateWindow(cfg)
 	local _tabNames = {}
 	local _tabOrder = {}
 	local _activeId = nil
-	local _activePageConns = {}
+
+	_activePageConns = {}
+	_pagesRef = _pages
+	_navBtnsRef = _navBtns
+	_navUnderlinesRef = _navUnderlines
+
+	local Window = { Visible = true, _dropdowns = {}, _floatingButtons = {} }
+	_currentWindow = Window
+
+	_mainWindowRefs = {
+		Main = Main, MainStroke = MainStroke, GlassBase = GlassBase, GlassSheen = GlassSheen,
+		InnerGlassStroke = InnerGlassStroke, Header = Header, TitleLbl = TitleLbl,
+		SubLbl = SubLbl, IcoBox = IcoBox, icoGlow = icoGlow, IcoImg = IcoImg, ColIcon = ColIcon
+	}
 
 	local GlobalScrollTrack = cloak(Instance.new("Frame"))
 	GlobalScrollTrack.Size = UDim2.new(0, 6, 0.8, 0)
@@ -1319,6 +1558,9 @@ function VaporLens:CreateWindow(cfg)
 	GlobalScrollThumb.BorderSizePixel = 0
 	GlobalScrollThumb.Parent = GlobalScrollTrack
 	corner(GlobalScrollThumb, 3)
+
+	_mainWindowRefs.GlobalScrollThumb = GlobalScrollThumb
+	_mainWindowRefs.GlobalScrollTrack = GlobalScrollTrack
 
 	local function updateGlobalScroll()
 		local page = _pages[_activeId]
@@ -1467,8 +1709,7 @@ function VaporLens:CreateWindow(cfg)
 		qt(InnerGlassStroke, { Transparency = 0.78 }, 0.52, Enum.EasingStyle.Exponential)
 	end)
 
-	local Window = { Visible = true }
-
+	-- We defined Window earlier
 	function Window:SetVisible(v)
 		v = (v == true)
 		if self.Visible == v then return end
@@ -2217,6 +2458,13 @@ function VaporLens:CreateWindow(cfg)
 					vList(plain, 0)
 					itemContainer = plain
 				end
+
+				-- Update dropdown ref if it exists
+				for _, dd in ipairs(Window._dropdowns) do
+					if dd.shell == DD then
+						dd.itemContainer = itemContainer
+					end
+				end
 			end
 
 			local function buildItems()
@@ -2446,6 +2694,11 @@ function VaporLens:CreateWindow(cfg)
 			end
 
 			function s:GetSelected() return selectedPlayer end
+
+			table.insert(Window._dropdowns, {
+				shell = DD, shellStroke = ddStr, itemContainer = itemContainer,
+				chev = chev, selLbl = selLbl, nameLbl = nameLbl, headerAvatar = headerAvatar
+			})
 
 			return s
 		end
@@ -2802,6 +3055,9 @@ function VaporLens:CreateWindow(cfg)
 		function fabConfig:SetDragThreshold(px) dragThreshold = math.clamp(type(px) == "number" and px or 4, 2, 20) end
 		function fabConfig:SetSnapToEdges(v) snapToEdges = v == true end
 		rememberFlag(cfgBtn.Flag, fabConfig)
+		
+		table.insert(Window._floatingButtons, fabConfig)
+		
 		return fabConfig
 	end
 
