@@ -290,13 +290,13 @@ local function qt(obj, goal, dur, style, dir)
 			TweenInfo.new(dur or 0.28, style or Enum.EasingStyle.Quart, dir or Enum.EasingDirection.Out),
 			goal
 		)
-
+		
 		-- Track properties
 		for prop, _ in pairs(goal) do
 			local key = tostring(obj:GetDebugId()) .. "_" .. prop
 			_activeTweens[key] = tween
 		end
-
+		
 		tween.Completed:Connect(function()
 			for prop, _ in pairs(goal) do
 				local key = tostring(obj:GetDebugId()) .. "_" .. prop
@@ -306,7 +306,7 @@ local function qt(obj, goal, dur, style, dir)
 			end
 			pcall(function() tween:Destroy() end)
 		end)
-
+		
 		return tween
 	end)
 
@@ -576,7 +576,7 @@ local function createDropdownShell(page, height)
 	captureInput(shell)
 	corner(shell, 12)
 	local shellStroke = stroke(shell, T.Border, 1, 1)
-	pad(shell, 16, 16, 0, 0)
+	pad(shell, 16, 16, 0, 8)
 	return shell, shellStroke
 end
 
@@ -921,7 +921,7 @@ local function _getNotifContainer()
 	_notifContainer.AnchorPoint = Vector2.new(1, 1)
 	_notifContainer.BackgroundTransparency = 1
 	_notifContainer.Parent = _gui
-
+	
 	local l = cloak(Instance.new("UIListLayout"))
 	l.VerticalAlignment = Enum.VerticalAlignment.Bottom
 	l.HorizontalAlignment = Enum.HorizontalAlignment.Right
@@ -1014,7 +1014,7 @@ function VaporLens:Notify(data)
 	}
 
 	table.insert(_notifStack, notif)
-
+	
 	-- Entrance animation
 	N.Size = UDim2.new(0, 0, 0, NF.H)
 	N.ClipsDescendants = true
@@ -2252,16 +2252,17 @@ function VaporLens:CreateWindow(cfg)
 			local isMulti = s.MultipleOptions == true
 			local isPlayerMode = s.PlayerMode == true
 			local showSelf = s.ShowSelf ~= false
+
 			local avatarScale = safeNumber(s.AvatarScale, 1.25, 0.5, 2)
 			local displayNameScale = safeNumber(s.DisplayNameScale, 1.15, 0.5, 2)
 			local usernameScale = safeNumber(s.UsernameScale, 1.15, 0.5, 2)
 
+			local MAX_DROPDOWN_VISIBLE = 5
+			local BASE_H = ELEM_H
+			local ITEM_H = isPlayerMode and 44 or 34
 			local isOpen = false
 			local backdrop = nil
 			local outsideInputConn = nil
-			local BASE_H = ELEM_H
-			local ITEM_H = isPlayerMode and 44 or 34
-			local MAX_DROPDOWN_VISIBLE = safeNumber(s.MaxVisibleItems, 5, 1, 50)
 			local selectedPlayer = nil
 			local addedConn, removingConn
 
@@ -2294,7 +2295,7 @@ function VaporLens:CreateWindow(cfg)
 			local HeaderRow = cloak(Instance.new("Frame"))
 			HeaderRow.Size = UDim2.new(1, 0, 0, BASE_H)
 			HeaderRow.BackgroundTransparency = 1
-			HeaderRow.ZIndex = 20
+			HeaderRow.ZIndex = 2
 			HeaderRow.Parent = DD
 
 			local syncDropdownHover = bindHoverState(DD, DD, ddStr, function() return isOpen end)
@@ -2334,7 +2335,7 @@ function VaporLens:CreateWindow(cfg)
 				headerAvatar.Size = UDim2.new(0, hAvSize, 0, hAvSize)
 				headerAvatar.BackgroundTransparency = 1
 				headerAvatar.ImageTransparency = 1
-				headerAvatar.ZIndex = 21
+				headerAvatar.ZIndex = 2
 				headerAvatar.LayoutOrder = 1
 				headerAvatar.Parent = RightContainer
 				corner(headerAvatar, math.floor(hAvSize / 2))
@@ -2354,7 +2355,6 @@ function VaporLens:CreateWindow(cfg)
 			local chev = icoLabel(HeaderRow, 16, T.Glow)
 			chev.AnchorPoint = Vector2.new(0.5, 0.5)
 			chev.Position = UDim2.new(1, -8, 0, BASE_H / 2)
-			chev.ZIndex = 22
 
 			local function syncDropdownChevron(opened)
 				if opened then
@@ -2376,30 +2376,11 @@ function VaporLens:CreateWindow(cfg)
 				backdrop = nil
 			end
 
-			local itemContainer = nil
-
 			local function closeDropdown()
 				isOpen = false
-				local closeTween = qt(DD, { Size = UDim2.new(1, 0, 0, BASE_H) }, 0.26, Enum.EasingStyle.Quart)
+				qt(DD, { Size = UDim2.new(1, 0, 0, BASE_H) }, 0.26, Enum.EasingStyle.Quart)
 				syncDropdownChevron(false)
 				closeBackdrop()
-				
-				-- Bug Fix: Defensive closure
-				if itemContainer then
-					itemContainer.Visible = false
-					if itemContainer:IsA("ScrollingFrame") then
-						itemContainer.ScrollBarThickness = 0
-						itemContainer.CanvasPosition = Vector2.new(0, 0)
-					end
-				end
-				
-				if closeTween then
-					closeTween.Completed:Connect(function()
-						if not isOpen then
-							DD.Size = UDim2.new(1, 0, 0, BASE_H)
-						end
-					end)
-				end
 			end
 
 			local function selText()
@@ -2424,6 +2405,8 @@ function VaporLens:CreateWindow(cfg)
 				selLbl.Text = selText()
 			end
 
+			local itemContainer = nil
+
 			local function buildItemContainer()
 				if itemContainer and itemContainer.Parent then itemContainer:Destroy() end
 				itemContainer = nil
@@ -2436,25 +2419,20 @@ function VaporLens:CreateWindow(cfg)
 					sf.Position = UDim2.new(0, 0, 0, BASE_H)
 					sf.BackgroundTransparency = 1
 					sf.BorderSizePixel = 0
-					sf.ScrollBarThickness = isOpen and 3 or 0
+					sf.ScrollBarThickness = 3
 					sf.ScrollBarImageColor3 = T.Glow
 					sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
 					sf.CanvasSize = UDim2.new(0, 0, 0, 0)
 					sf.ZIndex = 1
-					sf.Visible = isOpen
 					sf.Parent = DD
-					pad(sf, 0, 0, 0, 8)
 					vList(sf, 0)
 					itemContainer = sf
 				else
 					local plain = cloak(Instance.new("Frame"))
-					plain.Size = UDim2.new(1, 0, 0, (count * ITEM_H) + 8)
+					plain.Size = UDim2.new(1, 0, 0, count * ITEM_H)
 					plain.Position = UDim2.new(0, 0, 0, BASE_H)
 					plain.BackgroundTransparency = 1
-					plain.Visible = isOpen
-					plain.ZIndex = 1
 					plain.Parent = DD
-					pad(plain, 0, 0, 0, 8)
 					vList(plain, 0)
 					itemContainer = plain
 				end
@@ -2613,7 +2591,7 @@ function VaporLens:CreateWindow(cfg)
 					buildItems()
 					selLbl.Text = selText()
 					if isOpen then
-						local expandH = BASE_H + (math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H) + 8
+						local expandH = BASE_H + math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H
 						DD.Size = UDim2.new(1, 0, 0, expandH)
 					end
 				end
@@ -2626,40 +2604,31 @@ function VaporLens:CreateWindow(cfg)
 			Interact.Size = UDim2.new(1, 0, 0, BASE_H)
 			Interact.BackgroundTransparency = 1
 			Interact.Text = ""
-			Interact.ZIndex = 50
+			Interact.ZIndex = 5
 			Interact.Parent = HeaderRow
 
 			Interact.MouseButton1Click:Connect(function()
 				if InputManager.ActiveSlider or (InputManager.DragState and InputManager.DragState.Active) then return end
 				isOpen = not isOpen
 				if isOpen then
-					Interact.ZIndex = 5
 					local expandH = BASE_H + (math.min(#options, MAX_DROPDOWN_VISIBLE) * ITEM_H) + 8
-					
-					if itemContainer then
-						itemContainer.Visible = true
-						if itemContainer:IsA("ScrollingFrame") then
-							itemContainer.ScrollBarThickness = 3
-						end
-					end
-					
 					qt(DD, { Size = UDim2.new(1, 0, 0, expandH) }, 0.32, Enum.EasingStyle.Quart)
 					syncDropdownChevron(true)
-					
 					outsideInputConn = trackConnection(UIS.InputBegan:Connect(function(inp)
 						if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
-							local pos = inp.Position
-							local ap = DD.AbsolutePosition
-							local as = DD.AbsoluteSize
-							local inDD = pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
-							
-							if not inDD then 
-								closeDropdown() 
-							end
+							task.defer(function()
+								if not isOpen then return end
+								local ok, inDD = pcall(function()
+									local pos = inp.Position
+									local ap = DD.AbsolutePosition
+									local as = DD.AbsoluteSize
+									return pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y
+								end)
+								if not (ok and inDD) then closeDropdown() end
+							end)
 						end
 					end))
 				else
-					Interact.ZIndex = 50
 					closeDropdown()
 				end
 			end)
